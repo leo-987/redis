@@ -3765,9 +3765,9 @@ int main(int argc, char **argv) {
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
     if (strstr(argv[0],"redis-check-rdb") != NULL)
-        redis_check_rdb_main(argc,argv,NULL);
+        redis_check_rdb_main(argc,argv,NULL);   /* 检测RDB文件，检测完毕直接退出进程 */
     else if (strstr(argv[0],"redis-check-aof") != NULL)
-        redis_check_aof_main(argc,argv);
+        redis_check_aof_main(argc,argv);        /* 检测AOF文件，检测完毕直接退出进程 */
 
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */

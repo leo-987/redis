@@ -81,6 +81,13 @@ static inline char sdsReqType(size_t string_size) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
+/*
+ * sds结构
+ * +-----+-------+------+-------+------+
+ * | len | alloc | flag | buf[] | '\0' |
+ * +-----+-------+------+-------+------+
+ * 函数返回一个指向buf[]开头的指针
+ */
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
@@ -91,7 +98,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
-    sh = s_malloc(hdrlen+initlen+1);
+    sh = s_malloc(hdrlen+initlen+1);    /* +1存放'\0' */
     if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;

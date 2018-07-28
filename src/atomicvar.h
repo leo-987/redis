@@ -71,11 +71,11 @@
 #if !defined(__ATOMIC_VAR_FORCE_SYNC_MACROS) && defined(__ATOMIC_RELAXED) && !defined(__sun) && (!defined(__clang__) || !defined(__APPLE__) || __apple_build_version__ > 4210057)
 /* Implementation using __atomic macros. */
 
-#define atomicIncr(var,count) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
+#define atomicIncr(var,count) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED) /* c++11内置函数 */
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __atomic_fetch_add(&var,(count),__ATOMIC_RELAXED); \
 } while(0)
-#define atomicDecr(var,count) __atomic_sub_fetch(&var,(count),__ATOMIC_RELAXED)
+#define atomicDecr(var,count) __atomic_sub_fetch(&var,(count),__ATOMIC_RELAXED) /* c++11内置函数 */
 #define atomicGet(var,dstvar) do { \
     dstvar = __atomic_load_n(&var,__ATOMIC_RELAXED); \
 } while(0)

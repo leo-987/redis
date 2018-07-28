@@ -589,7 +589,7 @@ typedef struct redisObject {
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
     int refcount;
-    void *ptr;
+    void *ptr;  /* 指向底层数据结构 */
 } robj;
 
 /* Macro used to initialize a Redis object allocated on the stack.
@@ -1291,8 +1291,8 @@ typedef struct {
  * Extern declarations
  *----------------------------------------------------------------------------*/
 
-extern struct redisServer server;
-extern struct sharedObjectsStruct shared;
+extern struct redisServer server;               /* redis实例 */
+extern struct sharedObjectsStruct shared;       /* 共享数据结构 */
 extern dictType objectKeyPointerValueDictType;
 extern dictType setDictType;
 extern dictType zsetDictType;
