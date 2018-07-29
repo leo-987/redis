@@ -70,27 +70,21 @@ void zlibc_free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
 
-/*
- * 1. 字节对齐，保证分配的字节数是8的倍数
- * 2. 原子地增加used_memory变量
- */
+/* 原子地增加used_memory变量，增加值为对齐后的大小 */
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     atomicIncr(used_memory,__n); \
 } while(0)
 
-/*
- * 1. 字节对齐，保证释放大小和申请大小相同
- * 2. 原子地减少used_memory变量
- */
+/* 原子地减少used_memory变量，减少值为对齐后的大小 */
 #define update_zmalloc_stat_free(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     atomicDecr(used_memory,__n); \
 } while(0)
 
-static size_t used_memory = 0;  /* 已分配内存大小 */
+static size_t used_memory = 0;  /* 系统实际已分配内存大小 */
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void zmalloc_default_oom(size_t size) {

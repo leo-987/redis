@@ -72,6 +72,10 @@
 #define HAVE_DEFRAG
 #endif
 
+/*
+ * z系列的malloc是redis内存管理的基石
+ * 和原生malloc的区别是在每一块内存开头保存了应用层实际申请的大小，并增加了统计功能
+ */
 void *zmalloc(size_t size);
 void *zcalloc(size_t size);
 void *zrealloc(void *ptr, size_t size);

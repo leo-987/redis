@@ -71,7 +71,7 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
-static uint8_t dict_hash_function_seed[16];
+static uint8_t dict_hash_function_seed[16]; /* 哈希函数种子？ */
 
 void dictSetHashFunctionSeed(uint8_t *seed) {
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
@@ -108,6 +108,7 @@ static void _dictReset(dictht *ht)
 }
 
 /* Create a new hash table */
+/* 函数指针打包到type中 */
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
@@ -306,7 +307,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
-    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];    // 如果在rehash，那么新数据插入ht[1]中
     entry = zmalloc(sizeof(*entry));
     entry->next = ht->table[index];
     ht->table[index] = entry;

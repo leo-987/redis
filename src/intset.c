@@ -202,7 +202,7 @@ static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
 
 /* Insert an integer in the intset */
 intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
-    uint8_t valenc = _intsetValueEncoding(value);
+    uint8_t valenc = _intsetValueEncoding(value);   // 根据插入整数的大小确定编码方式
     uint32_t pos;
     if (success) *success = 1;
 
@@ -211,7 +211,7 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
      * because it lies outside the range of existing values. */
     if (valenc > intrev32ifbe(is->encoding)) {
         /* This always succeeds, so we don't need to curry *success. */
-        return intsetUpgradeAndAdd(is,value);
+        return intsetUpgradeAndAdd(is,value);   // 新元素长度超过现有编码长度，需要升级
     } else {
         /* Abort if the value is already present in the set.
          * This call will populate "pos" with the right position to insert

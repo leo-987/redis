@@ -951,7 +951,7 @@ void updateCachedTime(void) {
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
  */
-
+/* 定时指定任务 */
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);
@@ -1339,6 +1339,7 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+/* 设置默认配置 */
 void initServerConfig(void) {
     int j;
 
@@ -1353,7 +1354,7 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.hz = CONFIG_DEFAULT_HZ;
-    server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
+    server.arch_bits = (sizeof(long) == 8) ? 64 : 32;   // 用long类型判断架构
     server.port = CONFIG_DEFAULT_SERVER_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
     server.bindaddr_count = 0;
@@ -1722,6 +1723,8 @@ int listenToPort(int port, int *fds, int *count) {
     if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
     for (j = 0; j < server.bindaddr_count || j == 0; j++) {
         if (server.bindaddr[j] == NULL) {
+            /* 未指定监听地址，监听最多一个可用的IPV4或IPV6地址 */
+
             int unsupported = 0;
             /* Bind * for both IPv6 and IPv4, we enter here only if
              * server.bindaddr_count == 0. */
@@ -1848,11 +1851,13 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
+    /* 开始监听端口，fd保存在ipfd */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
 
     /* Open the listening Unix domain socket. */
+    /* unixsocket默认为NULL */
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
@@ -1877,7 +1882,7 @@ void initServer(void) {
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].id = j;
+        server.db[j].id = j;    // DB编号
         server.db[j].avg_ttl = 0;
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
@@ -1916,6 +1921,7 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
+    /* 创建定时任务 */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -1923,6 +1929,7 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    /* 将监听socket加入epoll，监听其可读事件 */
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -1937,6 +1944,7 @@ void initServer(void) {
 
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
+    /* 先忽略 */
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
         moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
             serverPanic(
@@ -3537,7 +3545,10 @@ void setupSignalHandlers(void) {
 void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
- * argv[0] contains "redis-sentinel". */
+ * argv[0] contains "redis-sentinel".
+ * 1. 可以通过 redis-sentinel /path/to/sentinel.conf 程序启动sentinel
+ * 2. 可以通过 redis-server /path/to/sentinel.conf --sentinel 启动sentinel模式的redis服务器
+ */
 int checkForSentinelMode(int argc, char **argv) {
     int j;
 
@@ -3583,6 +3594,7 @@ void loadDataFromDisk(void) {
     }
 }
 
+/* 内存不足回调函数 */
 void redisOutOfMemoryHandler(size_t allocation_size) {
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
@@ -3681,6 +3693,7 @@ int redisSupervisedSystemd(void) {
     return 1;
 }
 
+/* mode默认为SUPERVISED_NONE，即返回0 */
 int redisIsSupervised(int mode) {
     if (mode == SUPERVISED_AUTODETECT) {
         const char *upstart_job = getenv("UPSTART_JOB");
@@ -3733,25 +3746,25 @@ int main(int argc, char **argv) {
 
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
-    spt_init(argc, argv);
+    spt_init(argc, argv);   // 修改进程名称，即argv[0]指向的内容
 #endif
     setlocale(LC_COLLATE,"");
-    zmalloc_set_oom_handler(redisOutOfMemoryHandler);
+    zmalloc_set_oom_handler(redisOutOfMemoryHandler);   // 设置内存不足时的回调函数
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     char hashseed[16];
-    getRandomHexChars(hashseed,sizeof(hashseed));
-    dictSetHashFunctionSeed((uint8_t*)hashseed);
-    server.sentinel_mode = checkForSentinelMode(argc,argv);
-    initServerConfig();
-    moduleInitModulesSystem();
+    getRandomHexChars(hashseed,sizeof(hashseed));       // 创建一个随机的redis实例id
+    dictSetHashFunctionSeed((uint8_t*)hashseed);        // 用实例id设置哈希函数种子
+    server.sentinel_mode = checkForSentinelMode(argc,argv); // 通过命令行参数检查是否为sentinel模式
+    initServerConfig(); // 初始化默认配置
+    moduleInitModulesSystem();  // 这玩意暂时没啥用
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
-    server.executable = getAbsolutePath(argv[0]);
-    server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
+    server.executable = getAbsolutePath(argv[0]);       // 保存可执行文件绝对路径
+    server.exec_argv = zmalloc(sizeof(char*)*(argc+1)); // +1存放空指针
     server.exec_argv[argc] = NULL;
-    for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
+    for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);  // 保存命令行参数
 
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
@@ -3831,7 +3844,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         resetServerSaveParams();
-        loadServerConfig(configfile,options);
+        loadServerConfig(configfile,options);   // 从配置文件和命令行参数中加载配置项
         sdsfree(options);
     }
 
@@ -3850,7 +3863,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Configuration loaded");
     }
 
-    server.supervised = redisIsSupervised(server.supervised_mode);
+    server.supervised = redisIsSupervised(server.supervised_mode);  // supervised_mode默认为SUPERVISED_NONE
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 

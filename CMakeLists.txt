@@ -265,9 +265,9 @@ add_executable(redis_4_0_10
         src/ae.c
         src/ae.h
         src/ae_epoll.c
-        src/ae_evport.c
-        src/ae_kqueue.c
-        src/ae_select.c
+        #src/ae_evport.c
+        #src/ae_kqueue.c
+        #src/ae_select.c
         src/anet.c
         src/anet.h
         src/aof.c

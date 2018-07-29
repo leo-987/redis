@@ -462,6 +462,7 @@ static int anetV6Only(char *err, int s) {
     return ANET_OK;
 }
 
+/* 监听IPV4或IPV6，一次调用只会监听一个地址 */
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
     int s = -1, rv;

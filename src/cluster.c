@@ -425,6 +425,12 @@ void clusterUpdateMyselfFlags(void) {
     }
 }
 
+/*
+ * 集群功能相关初始化，包括：
+ * 1. 初始化server.cluster
+ * 2. 创建一个clusterNode并放入一个字典中
+ * 3. 监听集群通信端口
+ */
 void clusterInit(void) {
     int saveconf = 0;
 
@@ -457,14 +463,15 @@ void clusterInit(void) {
         exit(1);
 
     /* Load or create a new nodes configuration. */
+    /* cluster_configfile默认为nodes.conf */
     if (clusterLoadConfig(server.cluster_configfile) == C_ERR) {
         /* No configuration found. We will just use the random name provided
          * by the createClusterNode() function. */
         myself = server.cluster->myself =
-            createClusterNode(NULL,CLUSTER_NODE_MYSELF|CLUSTER_NODE_MASTER);
+            createClusterNode(NULL,CLUSTER_NODE_MYSELF|CLUSTER_NODE_MASTER);    // 节点名采用随机值
         serverLog(LL_NOTICE,"No cluster configuration found, I'm %.40s",
             myself->name);
-        clusterAddNode(myself);
+        clusterAddNode(myself); // 将节点接入哈希表中
         saveconf = 1;
     }
     if (saveconf) clusterSaveConfigOrDie(1);
@@ -484,6 +491,7 @@ void clusterInit(void) {
         exit(1);
     }
 
+    /* 在客户端监听端口基础上加10000作为集群监听端口 */
     if (listenToPort(server.port+CLUSTER_PORT_INCR,
         server.cfd,&server.cfd_count) == C_ERR)
     {
@@ -514,8 +522,8 @@ void clusterInit(void) {
         myself->cport = server.cluster_announce_bus_port;
 
     server.cluster->mf_end = 0;
-    resetManualFailover();
-    clusterUpdateMyselfFlags();
+    resetManualFailover();      // 初始化手动故障转移相关变量
+    clusterUpdateMyselfFlags(); // 设置myself->flag标志
 }
 
 /* Reset a node performing a soft or hard reset:
@@ -612,6 +620,8 @@ void freeClusterLink(clusterLink *link) {
 }
 
 #define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
+
+/* 集群新连接事件触发回调函数 */
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;

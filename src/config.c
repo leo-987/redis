@@ -169,6 +169,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     listAddNodeTail(server.loadmodule_queue,loadmod);
 }
 
+/* 解析并保存配置项和命令行参数 */
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -788,13 +789,13 @@ void loadServerConfig(char *filename, char *options) {
             }
         }
         while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
-            config = sdscat(config,buf);
+            config = sdscat(config,buf);    // 逐行读取配置文件中的配置项
         if (fp != stdin) fclose(fp);
     }
     /* Append the additional options */
     if (options) {
         config = sdscat(config,"\n");
-        config = sdscat(config,options);
+        config = sdscat(config,options);    // 配置信息来源：配置文件项，命令行参数
     }
     loadServerConfigFromString(config);
     sdsfree(config);
@@ -834,6 +835,7 @@ void loadServerConfig(char *filename, char *options) {
 
 #define config_set_else } else
 
+/* CONFIG SET命令动态调整配置函数 */
 void configSetCommand(client *c) {
     robj *o;
     long long ll;

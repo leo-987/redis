@@ -32,9 +32,18 @@
 #define __INTSET_H
 #include <stdint.h>
 
+/* 整数集合，集合对象的实现方式之一 */
 typedef struct intset {
+    /*
+     * 编码方式，包括INTSET_ENC_INT16/INTSET_ENC_INT32/INTSET_ENC_INT64
+     * 一旦确定了编码方式，那么数组中的所有元素都用相同大小的空间来保存
+     */
     uint32_t encoding;
+
+    /* 集合元素数量 */
     uint32_t length;
+
+    /* 保存元素的数组，从小到大排序，并且无重复元素 */
     int8_t contents[];
 } intset;
 
