@@ -1195,17 +1195,20 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && server.masterhost == NULL)
-        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
+        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);    // 快速淘汰过期key
 
     /* Send all the slaves an ACK request if at least one client blocked
-     * during the previous event loop iteration. */
+     * during the previous event loop iteration.
+     *
+     * 如果有客户端请求WAIT命令，则master需要发送ACK请求("REPLCONF GETACK")命令到所有slave
+     */
     if (server.get_ack_from_slaves) {
         robj *argv[3];
 
         argv[0] = createStringObject("REPLCONF",8);
         argv[1] = createStringObject("GETACK",6);
         argv[2] = createStringObject("*",1); /* Not used argument. */
-        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);   // ACK命令发送到所有slave
         decrRefCount(argv[0]);
         decrRefCount(argv[1]);
         decrRefCount(argv[2]);
@@ -1215,7 +1218,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT. */
     if (listLength(server.clients_waiting_acks))
-        processClientsWaitingReplicas();
+        processClientsWaitingReplicas();    // 循环处理阻塞在WAIT命令的客户端连接
 
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
@@ -1223,7 +1226,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
-        processUnblockedClients();
+        processUnblockedClients();  // 处理unblocked队列中的client
 
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile(0);
@@ -3559,6 +3562,7 @@ int checkForSentinelMode(int argc, char **argv) {
 }
 
 /* Function called at startup to load RDB or AOF file in memory. */
+/* 优先使用AOF来还原数据，因为AOF的数据集更加完整 */
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
@@ -3882,6 +3886,7 @@ int main(int argc, char **argv) {
         moduleLoadFromQueue();
         loadDataFromDisk();
         if (server.cluster_enabled) {
+            /* 检查有数据的slot是否属于本节点，如果不属于则需要接管该slot控制权 */
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,
                     "You can't have keys in a DB different than DB 0 when in "

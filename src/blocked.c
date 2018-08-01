@@ -96,7 +96,12 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 
 /* Block a client for the specific operation type. Once the CLIENT_BLOCKED
  * flag is set client query buffer is not longer processed, but accumulated,
- * and will be processed when the client is unblocked. */
+ * and will be processed when the client is unblocked.
+ *
+ * 将一个client设置为阻塞状态，目前一共有两种命令：
+ * 1. 命令的阻塞版本
+ * 2. WAIT命令
+ */
 void blockClient(client *c, int btype) {
     c->flags |= CLIENT_BLOCKED;
     c->btype = btype;
@@ -105,7 +110,10 @@ void blockClient(client *c, int btype) {
 
 /* This function is called in the beforeSleep() function of the event loop
  * in order to process the pending input buffer of clients that were
- * unblocked after a blocking operation. */
+ * unblocked after a blocking operation.
+ *
+ * 处理非阻塞客户端的请求
+ */
 void processUnblockedClients(void) {
     listNode *ln;
     client *c;
@@ -130,7 +138,10 @@ void processUnblockedClients(void) {
 }
 
 /* Unblock a client calling the right function depending on the kind
- * of operation the client is blocking for. */
+ * of operation the client is blocking for.
+ *
+ * 将阻塞的client清除阻塞标志，然后放入unblocked队列
+ */
 void unblockClient(client *c) {
     if (c->btype == BLOCKED_LIST) {
         unblockClientWaitingData(c);

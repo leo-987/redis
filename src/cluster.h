@@ -5,7 +5,7 @@
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
 
-#define CLUSTER_SLOTS 16384
+#define CLUSTER_SLOTS 16384   /* cluster模式将整个键空间划分成16384个slot */
 #define CLUSTER_OK 0          /* Everything looks ok */
 #define CLUSTER_FAIL 1        /* The cluster can't work */
 #define CLUSTER_NAMELEN 40    /* sha1 hex length */
@@ -140,9 +140,9 @@ typedef struct clusterState {
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
-    clusterNode *importing_slots_from[CLUSTER_SLOTS];
-    clusterNode *slots[CLUSTER_SLOTS];
-    uint64_t slots_keys_count[CLUSTER_SLOTS];
+    clusterNode *importing_slots_from[CLUSTER_SLOTS];   /* value表示对应的slot应该从这个node那里把控制权拿过来 */
+    clusterNode *slots[CLUSTER_SLOTS];  /* slot->node映射 */
+    uint64_t slots_keys_count[CLUSTER_SLOTS];   /* 该实例在slot下拥有key的数量 */
     rax *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */

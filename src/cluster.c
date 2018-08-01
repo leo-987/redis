@@ -3522,17 +3522,17 @@ void clusterBeforeSleep(void) {
     /* Handle failover, this is needed when it is likely that there is already
      * the quorum from masters in order to react fast. */
     if (server.cluster->todo_before_sleep & CLUSTER_TODO_HANDLE_FAILOVER)
-        clusterHandleSlaveFailover();
+        clusterHandleSlaveFailover();   // 故障迁移
 
     /* Update the cluster state. */
     if (server.cluster->todo_before_sleep & CLUSTER_TODO_UPDATE_STATE)
-        clusterUpdateState();
+        clusterUpdateState();           // 更新节点状态
 
     /* Save the config, possibly using fsync. */
     if (server.cluster->todo_before_sleep & CLUSTER_TODO_SAVE_CONFIG) {
         int fsync = server.cluster->todo_before_sleep &
                     CLUSTER_TODO_FSYNC_CONFIG;
-        clusterSaveConfigOrDie(fsync);
+        clusterSaveConfigOrDie(fsync);  // 保存nodes.conf配置文件
     }
 
     /* Reset our flags (not strictly needed since every single function
@@ -3835,6 +3835,7 @@ int verifyClusterConfigWithData(void) {
                                     "Taking responsibility for it.",j);
             clusterAddSlot(myself,j);
         } else {
+            /* 这个slot已经被其它node占据了 */
             serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
                                     "assigned to another node. "
                                     "Setting it to importing state.",j);

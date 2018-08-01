@@ -1065,7 +1065,11 @@ void resetClient(client *c) {
  * is ready to be executed, or C_ERR if there is still protocol to read to
  * have a well formed command. The function also returns C_ERR when there is
  * a protocol error: in such a case the client structure is setup to reply
- * with the error and close the connection. */
+ * with the error and close the connection.
+ *
+ * 从客户端querybuf中读取命令和参数并解析
+ *
+ */
 int processInlineBuffer(client *c) {
     char *newline;
     int argc, j;
@@ -1077,6 +1081,7 @@ int processInlineBuffer(client *c) {
 
     /* Nothing to do without a \r\n */
     if (newline == NULL) {
+        /* inline命令没有换行符，不符合协议要求 */
         if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
             addReplyError(c,"Protocol error: too big inline request");
             setProtocolError("too big inline request",c,0);
@@ -1089,9 +1094,14 @@ int processInlineBuffer(client *c) {
         newline--;
 
     /* Split the input buffer up to the \r\n */
+    /*
+     * 例如：
+     * SET msg hello \r\n
+     * argv[0] = SET; argv[1] = msg; argv[2] = hello; argc = 3
+     */
     querylen = newline-(c->querybuf);
-    aux = sdsnewlen(c->querybuf,querylen);
-    argv = sdssplitargs(aux,&argc);
+    aux = sdsnewlen(c->querybuf,querylen);  // querybuf的内容会拷贝到aux
+    argv = sdssplitargs(aux,&argc);         // 根据空格分割命令和参数
     sdsfree(aux);
     if (argv == NULL) {
         addReplyError(c,"Protocol error: unbalanced quotes in request");
@@ -1103,7 +1113,7 @@ int processInlineBuffer(client *c) {
      * This is useful for a slave to ping back while loading a big
      * RDB file. */
     if (querylen == 0 && c->flags & CLIENT_SLAVE)
-        c->repl_ack_time = server.unixtime;
+        c->repl_ack_time = server.unixtime; // 如果client是一个slave，则表示心跳正常，更新slave ack时间
 
     /* Leave data after the first line of the query in the buffer */
     sdsrange(c->querybuf,querylen+2,-1);
@@ -1719,6 +1729,7 @@ void clientCommand(client *c) {
         else
             addReply(c,shared.nullbulk);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
+        /* 命令: CLIENT PAUSE timeout */
         long long duration;
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,UNIT_MILLISECONDS)
@@ -1993,11 +2004,17 @@ void pauseClients(mstime_t end) {
 }
 
 /* Return non-zero if clients are currently paused. As a side effect the
- * function checks if the pause time was reached and clear it. */
+ * function checks if the pause time was reached and clear it.
+ *
+ * 检查服务器是否处于暂停状态
+ * 如果暂停到期，则将所有client放入unblocked队列中
+ * */
 int clientsArePaused(void) {
     if (server.clients_paused &&
         server.clients_pause_end_time < server.mstime)
     {
+        /* 暂停时间到期 */
+
         listNode *ln;
         listIter li;
         client *c;

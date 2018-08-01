@@ -2366,7 +2366,10 @@ int replicationScriptCacheExists(sds sha1) {
 /* This just set a flag so that we broadcast a REPLCONF GETACK command
  * to all the slaves in the beforeSleep() function. Note that this way
  * we "group" all the clients that want to wait for synchronouns replication
- * in a given event loop iteration, and send a single GETACK for them all. */
+ * in a given event loop iteration, and send a single GETACK for them all.
+ *
+ * REPLCONF GETACK命令要求slave向master回复自己的replication offset
+ */
 void replicationRequestAckFromSlaves(void) {
     server.get_ack_from_slaves = 1;
 }
@@ -2389,7 +2392,10 @@ int replicationCountAcksByOffset(long long offset) {
 }
 
 /* WAIT for N replicas to acknowledge the processing of our latest
- * write command (and all the previous commands). */
+ * write command (and all the previous commands).
+ *
+ * 该命令将阻止当前客户端，直到指定数量的slave写入成功或者超时才返回
+ */
 void waitCommand(client *c) {
     mstime_t timeout;
     long numreplicas, ackreplicas;
@@ -2437,7 +2443,10 @@ void unblockClientWaitingReplicas(client *c) {
 }
 
 /* Check if there are clients blocked in WAIT that can be unblocked since
- * we received enough ACKs from slaves. */
+ * we received enough ACKs from slaves.
+ *
+ * WAIT命令返回值为已确认写入成功的slave数量
+ */
 void processClientsWaitingReplicas(void) {
     long long last_offset = 0;
     int last_numreplicas = 0;
@@ -2456,12 +2465,14 @@ void processClientsWaitingReplicas(void) {
         if (last_offset && last_offset > c->bpop.reploffset &&
                            last_numreplicas > c->bpop.numreplicas)
         {
+            /* 其它也在等待WAIT的客户端可以复用那些满足条件的结果 */
             unblockClient(c);
             addReplyLongLong(c,last_numreplicas);
         } else {
             int numreplicas = replicationCountAcksByOffset(c->bpop.reploffset);
 
             if (numreplicas >= c->bpop.numreplicas) {
+                /* 数量达到了WAIT命令要求的slave个数，返回响应 */
                 last_offset = c->bpop.reploffset;
                 last_numreplicas = numreplicas;
                 unblockClient(c);
