@@ -1067,7 +1067,7 @@ void resetClient(client *c) {
  * a protocol error: in such a case the client structure is setup to reply
  * with the error and close the connection.
  *
- * 从客户端querybuf中读取命令和参数并解析
+ * 从客户端querybuf中读取一行命令和参数并解析
  *
  */
 int processInlineBuffer(client *c) {
@@ -1113,15 +1113,15 @@ int processInlineBuffer(client *c) {
      * This is useful for a slave to ping back while loading a big
      * RDB file. */
     if (querylen == 0 && c->flags & CLIENT_SLAVE)
-        c->repl_ack_time = server.unixtime; // 如果client是一个slave，则表示心跳正常，更新slave ack时间
+        c->repl_ack_time = server.unixtime; // 如果slave发来一个换行符，则表示心跳正常，更新slave ack时间
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,querylen+2,-1);    // 删除第一条命令行
 
     /* Setup argv array on client structure */
     if (argc) {
         if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*argc);
+        c->argv = zmalloc(sizeof(robj*)*argc);  // 给命令和参数分配空间
     }
 
     /* Create redis objects for all arguments. */

@@ -727,6 +727,8 @@ sds sdstrim(sds s, const char *cset) {
  *
  * s = sdsnew("Hello World");
  * sdsrange(s,1,-1); => "ello World"
+ *
+ * 参数范围之外的数据会被覆盖或清除
  */
 void sdsrange(sds s, ssize_t start, ssize_t end) {
     size_t newlen, len = sdslen(s);
