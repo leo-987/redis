@@ -1068,7 +1068,13 @@ void resetClient(client *c) {
  * with the error and close the connection.
  *
  * 从客户端querybuf中读取一行命令和参数并解析
- *
+ * 例如：
+ * cmd arg1 arg2\n
+ * 则解析为
+ * c->argv[0] = cmd
+ * c->argv[1] = arg1
+ * c->argv[2] = arg2
+ * c->argc = 3
  */
 int processInlineBuffer(client *c) {
     char *newline;
@@ -1127,7 +1133,7 @@ int processInlineBuffer(client *c) {
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
         if (sdslen(argv[j])) {
-            c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
+            c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);    // 创建字符串对象
             c->argc++;
         } else {
             sdsfree(argv[j]);
@@ -1178,7 +1184,14 @@ static void setProtocolError(const char *errstr, client *c, long pos) {
  *
  * This function is called if processInputBuffer() detects that the next
  * command is in RESP format, so the first byte in the command is found
- * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
+ * to be '*'. Otherwise for inline commands processInlineBuffer() is called.
+ *
+ * 从c->querybuf读取客户端命令和参数，解析并保存到c->argv中
+ * 例如
+ * *3\r\n$3\r\nSET\r\n$3\r\nMSG\r\n$5\r\nHELLO\r\n
+ * 解析结果为
+ * argv[0] = SET，argv[1] = MSG，argv[2] = HELLO
+ */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     long pos = 0;
@@ -1190,6 +1203,7 @@ int processMultibulkBuffer(client *c) {
         serverAssertWithInfo(c,NULL,c->argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
+        /* 找出客户端命令中第一个\r\n */
         newline = strchr(c->querybuf,'\r');
         if (newline == NULL) {
             if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
@@ -1206,15 +1220,21 @@ int processMultibulkBuffer(client *c) {
         /* We know for sure there is a whole line since newline != NULL,
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[0] == '*');
-        ok = string2ll(c->querybuf+1,newline-(c->querybuf+1),&ll);
+        ok = string2ll(c->querybuf+1,newline-(c->querybuf+1),&ll);  // 命令+参数个数存入ll中
         if (!ok || ll > 1024*1024) {
+            /* 参数个数不能太多 */
             addReplyError(c,"Protocol error: invalid multibulk length");
             setProtocolError("invalid mbulk count",c,pos);
             return C_ERR;
         }
 
+        /* *3\r\n$3\r\nSET\r\n$3\r\nMSG\r\n$5\r\nHELLO\r\n
+         *       ↑
+         *      pos
+         */
         pos = (newline-c->querybuf)+2;
         if (ll <= 0) {
+            /* 空命令行，直接跳过 */
             sdsrange(c->querybuf,pos,-1);
             return C_OK;
         }
@@ -1223,13 +1243,16 @@ int processMultibulkBuffer(client *c) {
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        c->argv = zmalloc(sizeof(robj*)*c->multibulklen);   // 为客户端命令和参数分配空间
     }
 
-    serverAssertWithInfo(c,NULL,c->multibulklen > 0);
+    serverAssertWithInfo(c,NULL,c->multibulklen > 0);       // multibulklen必须大于0
+
+    // 从c->querybuf中循环读取并解析每一个参数，结果存入c->argv中
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
+            /* 每个命令或参数的开头是长度字段，先解析出长度字段，然后才能 */
             newline = strchr(c->querybuf+pos,'\r');
             if (newline == NULL) {
                 if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
@@ -1253,6 +1276,7 @@ int processMultibulkBuffer(client *c) {
                 return C_ERR;
             }
 
+            /* 读取命令或参数的字符长度 */
             ok = string2ll(c->querybuf+pos+1,newline-(c->querybuf+pos+1),&ll);
             if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
                 addReplyError(c,"Protocol error: invalid bulk length");
@@ -1260,6 +1284,7 @@ int processMultibulkBuffer(client *c) {
                 return C_ERR;
             }
 
+            /* pos指向参数第一个字符 */
             pos += newline-(c->querybuf+pos)+2;
             if (ll >= PROTO_MBULK_BIG_ARG) {
                 size_t qblen;
@@ -1303,19 +1328,19 @@ int processMultibulkBuffer(client *c) {
                     createStringObject(c->querybuf+pos,c->bulklen);
                 pos += c->bulklen+2;
             }
-            c->bulklen = -1;
-            c->multibulklen--;
+            c->bulklen = -1;    // 当前参数解析完毕
+            c->multibulklen--;  // 未解析参数个数-1
         }
-    }
+    }   // 一个参数解析完毕
 
     /* Trim to pos */
-    if (pos) sdsrange(c->querybuf,pos,-1);
+    if (pos) sdsrange(c->querybuf,pos,-1);  // 丢弃已读取的内容
 
     /* We're done when c->multibulk == 0 */
-    if (c->multibulklen == 0) return C_OK;
+    if (c->multibulklen == 0) return C_OK;  // 所有参数解析成功
 
     /* Still not ready to process the command */
-    return C_ERR;
+    return C_ERR;   // 还有参数未解析完成或者协议出错
 }
 
 /* This function is called every time, in the client structure 'c', there is
@@ -1340,6 +1365,7 @@ void processInputBuffer(client *c) {
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* Determine request type when unknown. */
+        /* 确定查询类型是来自telnet还是redis客户端 */
         if (!c->reqtype) {
             if (c->querybuf[0] == '*') {
                 c->reqtype = PROTO_REQ_MULTIBULK;
@@ -1349,18 +1375,19 @@ void processInputBuffer(client *c) {
         }
 
         if (c->reqtype == PROTO_REQ_INLINE) {
-            if (processInlineBuffer(c) != C_OK) break;
+            if (processInlineBuffer(c) != C_OK) break;      // 解析来自telnet的请求
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-            if (processMultibulkBuffer(c) != C_OK) break;
+            if (processMultibulkBuffer(c) != C_OK) break;   // 解析来自客户端的请求
         } else {
             serverPanic("Unknown request type");
         }
 
         /* Multibulk processing could see a <= 0 length. */
         if (c->argc == 0) {
-            resetClient(c);
+            resetClient(c); // 没有要处理的命令，直接重置客户端
         } else {
             /* Only reset the client when the command was executed. */
+            /* 处理请求，然后重置客户端 */
             if (processCommand(c) == C_OK) {
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
                     /* Update the applied replication offset of our master. */
@@ -2008,7 +2035,7 @@ void pauseClients(mstime_t end) {
  *
  * 检查服务器是否处于暂停状态
  * 如果暂停到期，则将所有client放入unblocked队列中
- * */
+ */
 int clientsArePaused(void) {
     if (server.clients_paused &&
         server.clients_pause_end_time < server.mstime)

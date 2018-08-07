@@ -369,6 +369,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
     return overhead;
 }
 
+/* 通过删除过期数据来释放内存 */
 int freeMemoryIfNeeded(void) {
     size_t mem_reported, mem_used, mem_tofree, mem_freed;
     mstime_t latency, eviction_latency;

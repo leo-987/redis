@@ -39,7 +39,7 @@
 /* ===================== Creation and parsing of objects ==================== */
 
 robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o = zmalloc(sizeof(*o));  // 只分配了redisObject对象空间，实际数据由参数ptr指向
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;

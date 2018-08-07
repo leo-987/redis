@@ -82,6 +82,7 @@ static inline char sdsReqType(size_t string_size) {
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
 /*
+ * 分配空间并构建一个SDS对象，将参数指向的内容拷贝到分配的空间中
  * sds结构
  * +-----+-------+------+-------+------+
  * | len | alloc | flag | buf[] | '\0' |
@@ -728,7 +729,7 @@ sds sdstrim(sds s, const char *cset) {
  * s = sdsnew("Hello World");
  * sdsrange(s,1,-1); => "ello World"
  *
- * 参数范围之外的数据会被覆盖或清除
+ * 会调用memmove，参数范围之外的数据会被覆盖或清除
  */
 void sdsrange(sds s, ssize_t start, ssize_t end) {
     size_t newlen, len = sdslen(s);
@@ -742,7 +743,7 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
         end = len+end;
         if (end < 0) end = 0;
     }
-    newlen = (start > end) ? 0 : (end-start)+1;
+    newlen = (start > end) ? 0 : (end-start)+1; // start > end表示从start到末尾
     if (newlen != 0) {
         if (start >= (ssize_t)len) {
             newlen = 0;
@@ -755,7 +756,7 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
     }
     if (start && newlen) memmove(s, s+start, newlen);
     s[newlen] = 0;
-    sdssetlen(s,newlen);
+    sdssetlen(s,newlen);    // 更新长度
 }
 
 /* Apply tolower() to every character of the sds string 's'. */

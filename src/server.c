@@ -2016,7 +2016,7 @@ void populateCommandTable(void) {
             f++;
         }
 
-        retval1 = dictAdd(server.commands, sdsnew(c->name), c);
+        retval1 = dictAdd(server.commands, sdsnew(c->name), c); // 初始化redis命令表
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
         retval2 = dictAdd(server.orig_commands, sdsnew(c->name), c);
@@ -2078,6 +2078,7 @@ void redisOpArrayFree(redisOpArray *oa) {
 
 /* ====================== Commands lookup and execution ===================== */
 
+/* 根据命令名称在redisCommandTable中找到对应的redisCommand对象 */
 struct redisCommand *lookupCommand(sds name) {
     return dictFetchValue(server.commands, name);
 }
@@ -2220,7 +2221,10 @@ void call(client *c, int flags) {
     int client_old_flags = c->flags;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
-     * not generated from reading an AOF. */
+     * not generated from reading an AOF.
+     *
+     * MONITOR是一个调试命令，返回客户端执行的每一个命令信息
+     */
     if (listLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
@@ -2344,7 +2348,10 @@ int processCommand(client *c) {
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
-     * a regular command proc. */
+     * a regular command proc.
+     *
+     * quit命令请求服务端发送完响应之后关闭连接
+     */
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
         addReply(c,shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -2355,12 +2362,14 @@ int processCommand(client *c) {
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
+        /* 空命令 */
         flagTransaction(c);
         addReplyErrorFormat(c,"unknown command '%s'",
             (char*)c->argv[0]->ptr);
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
+        /* 参数个数错误 */
         flagTransaction(c);
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
             c->cmd->name);
@@ -2378,7 +2387,10 @@ int processCommand(client *c) {
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
-     * 2) The command has no key arguments. */
+     * 2) The command has no key arguments.
+     *
+     * 执行重定向操作，需要满足三个条件：1）开启了cluster功能；2）请求不是来自mster；3）命令必须带有key
+     */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
@@ -2391,12 +2403,14 @@ int processCommand(client *c) {
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &hashslot,&error_code);
         if (n == NULL || n != server.cluster->myself) {
+            // key所对应slot不属于当前node，返回客户端重定向信息
             if (c->cmd->proc == execCommand) {
+                // 对应exec命令（执行所有事务块内的命令），重置客户端事务状态
                 discardTransaction(c);
             } else {
                 flagTransaction(c);
             }
-            clusterRedirectClient(c,n,hashslot,error_code);
+            clusterRedirectClient(c,n,hashslot,error_code); // 构造响应并发送给客户端
             return C_OK;
         }
     }
@@ -2407,13 +2421,16 @@ int processCommand(client *c) {
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
     if (server.maxmemory) {
-        int retval = freeMemoryIfNeeded();
+        int retval = freeMemoryIfNeeded();  // 尝试释放更多内存空间
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
 
         /* It was impossible to free enough memory, and the command the client
-         * is trying to execute is denied during OOM conditions? Error. */
+         * is trying to execute is denied during OOM conditions? Error.
+         *
+         * 如果内存释放失败，并且当前命令需要占用大量内存，则返回错误
+         */
         if ((c->cmd->flags & CMD_DENYOOM) && retval == C_ERR) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
@@ -2422,7 +2439,10 @@ int processCommand(client *c) {
     }
 
     /* Don't accept write commands if there are problems persisting on disk
-     * and if this is a master instance. */
+     * and if this is a master instance.
+     *
+     * 如果本机为master，并且执行BGSAVE过程中发生错误，则不能执行写操作
+     */
     if (((server.stop_writes_on_bgsave_err &&
           server.saveparamslen > 0 &&
           server.lastbgsave_status == C_ERR) ||
@@ -2443,7 +2463,10 @@ int processCommand(client *c) {
     }
 
     /* Don't accept write commands if there are not enough good slaves and
-     * user configured the min-slaves-to-write option. */
+     * user configured the min-slaves-to-write option.
+     *
+     * 如果开启了min-slaves-to-write选项，那么必须保证有足够多正常的slave才能执行写操作
+     */
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
         server.repl_min_slaves_max_lag &&
@@ -2456,7 +2479,10 @@ int processCommand(client *c) {
     }
 
     /* Don't accept write commands if this is a read only slave. But
-     * accept write commands if this is our master. */
+     * accept write commands if this is our master.
+     *
+     * 本机为只读slave，拒绝执行写命令
+     */
     if (server.masterhost && server.repl_slave_ro &&
         !(c->flags & CLIENT_MASTER) &&
         c->cmd->flags & CMD_WRITE)
@@ -2465,7 +2491,10 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
+    /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub
+     *
+     * 当前为订阅/发布模式，只能执行有限的命令
+     */
     if (c->flags & CLIENT_PUBSUB &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
@@ -2488,13 +2517,19 @@ int processCommand(client *c) {
     }
 
     /* Loading DB? Return an error if the command has not the
-     * CMD_LOADING flag. */
+     * CMD_LOADING flag.
+     *
+     * 如果正在加载磁盘数据，那么只能执行CMD_LOADING类型的命令
+     */
     if (server.loading && !(c->cmd->flags & CMD_LOADING)) {
         addReply(c, shared.loadingerr);
         return C_OK;
     }
 
-    /* Lua script too slow? Only allow a limited number of commands. */
+    /* Lua script too slow? Only allow a limited number of commands.
+     *
+     * lua脚本超时，只能执行指定的操作
+     */
     if (server.lua_timedout &&
           c->cmd->proc != authCommand &&
           c->cmd->proc != replconfCommand &&
@@ -2515,10 +2550,11 @@ int processCommand(client *c) {
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
     {
+        // 正在执行事务，除EXEC、DISCARD、MULTI、WATCH命令之外的所有命令都会入队列
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
+        call(c,CMD_CALL_FULL);  // 开始执行命令
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnLists();

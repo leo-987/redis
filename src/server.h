@@ -221,7 +221,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
 #define CLIENT_MASTER (1<<1)  /* This client is a master server */
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
-#define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
+#define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context，MULTI命令记录一个事务的开始 */
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
@@ -258,8 +258,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 
 /* Client request types */
-#define PROTO_REQ_INLINE 1      /* 内联查询 */
-#define PROTO_REQ_MULTIBULK 2   /* 多条查询 */
+#define PROTO_REQ_INLINE 1      /* 内联查询，来自telnet */
+#define PROTO_REQ_MULTIBULK 2   /* 多条查询，来自redis客户端 */
 
 /* Client classes for client limits, currently used only for
  * the max-client-output-buffer limit implementation. */
@@ -685,12 +685,12 @@ typedef struct client {
                                yet not applied replication stream that we
                                are receiving from the master. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
-    int argc;               /* Num of arguments of current command. */
-    robj **argv;            /* Arguments of current command. 当前命令和对应的参数 */
+    int argc;               /* Num of arguments of current command. 客户端命令+参数个数之和 */
+    robj **argv;            /* Arguments of current command. 参数数组 */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
-    int multibulklen;       /* Number of multi bulk arguments left to read. */
-    long bulklen;           /* Length of bulk argument in multi bulk request. */
+    int multibulklen;       /* Number of multi bulk arguments left to read. 客户端命令+参数个数之和，初始值为0 */
+    long bulklen;           /* Length of bulk argument in multi bulk request. 命令或参数字符长度 */
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     size_t sentlen;         /* Amount of bytes already sent in the current
@@ -890,7 +890,7 @@ struct redisServer {
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
-    char *requirepass;          /* Pass for AUTH command, or NULL */
+    char *requirepass;          /* Pass for AUTH command, or NULL，默认值为NULL */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
@@ -1044,7 +1044,7 @@ struct redisServer {
     int rdb_bgsave_scheduled;       /* BGSAVE when possible if true. */
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* C_OK or C_ERR */
-    int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
+    int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE，执行BGSAVE时发生了错误 */
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
     /* Pipe and data structures for child -> parent info sharing. */
@@ -1221,7 +1221,7 @@ typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, i
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
-    int arity;
+    int arity;    /* 参数个数 */
     char *sflags; /* Flags as string representation, one char per flag. */
     int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
