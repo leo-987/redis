@@ -122,7 +122,10 @@ void freeReplicationBacklog(void) {
 /* Add data to the replication backlog.
  * This function also increments the global replication offset stored at
  * server.master_repl_offset, because there is no case where we want to feed
- * the backlog without incrementing the offset. */
+ * the backlog without incrementing the offset.
+ *
+ * 将数据写入复制积压缓冲区并更新同步复制offset
+ */
 void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
 
@@ -149,7 +152,10 @@ void feedReplicationBacklog(void *ptr, size_t len) {
 }
 
 /* Wrapper for feedReplicationBacklog() that takes Redis string objects
- * as input. */
+ * as input.
+ *
+ * 将对象转换成字符指针，然后写入复制积压缓冲区
+ */
 void feedReplicationBacklogWithObject(robj *o) {
     char llstr[LONG_STR_SIZE];
     void *p;
@@ -169,7 +175,10 @@ void feedReplicationBacklogWithObject(robj *o) {
  * as well. This function is used if the instance is a master: we use
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
- * we use replicationFeedSlavesFromMaster() */
+ * we use replicationFeedSlavesFromMaster()
+ *
+ * 将命令传播到slaves，并且写入复制积压缓冲区
+ */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
@@ -184,19 +193,28 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     if (server.masterhost != NULL) return;
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
-     * we can return ASAP. */
+     * we can return ASAP.
+     *
+     * 如果没有slave，并且没有复制积压缓冲区，那么不执行传播操作
+     */
     if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
 
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
 
-    /* Send SELECT command to every slave if needed. */
+    /* Send SELECT command to every slave if needed.
+     *
+     * 如果之前传播命令对应的DB和当前要传播命令对应的DB不同，那么需要请求slave切换DB
+     */
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
 
-        /* For a few DBs we have pre-computed SELECT command. */
+        /* For a few DBs we have pre-computed SELECT command.
+         *
+         * 创建SELECT命令字符串
+         */
         if (dictid >= 0 && dictid < PROTO_SHARED_SELECT_CMDS) {
-            selectcmd = shared.select[dictid];
+            selectcmd = shared.select[dictid];  // 字符串"SELECT 0-9"从共享对象中获取
         } else {
             int dictid_len;
 
@@ -208,14 +226,14 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
-        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
+        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);   // 将SELECT命令写入复制积压缓冲区
 
         /* Send it to slaves. */
         listRewind(slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
-            addReply(slave,selectcmd);
+            addReply(slave,selectcmd);  // 发送给所有slave
         }
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
@@ -223,7 +241,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     }
     server.slaveseldb = dictid;
 
-    /* Write the command to the replication backlog if any. */
+    /* Write the command to the replication backlog if any.
+     *
+     * 将要执行的命令写入复制积压缓冲区
+     */
     if (server.repl_backlog) {
         char aux[LONG_STR_SIZE+3];
 
@@ -232,7 +253,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         len = ll2string(aux+1,sizeof(aux)-1,argc);
         aux[len+1] = '\r';
         aux[len+2] = '\n';
-        feedReplicationBacklog(aux,len+3);
+        feedReplicationBacklog(aux,len+3);  // 写入命令总长度+换行符
 
         for (j = 0; j < argc; j++) {
             long objlen = stringObjectLen(argv[j]);
@@ -244,9 +265,9 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
             aux[len+1] = '\r';
             aux[len+2] = '\n';
-            feedReplicationBacklog(aux,len+3);
-            feedReplicationBacklogWithObject(argv[j]);
-            feedReplicationBacklog(aux+len+1,2);
+            feedReplicationBacklog(aux,len+3);          // 写入参数长度
+            feedReplicationBacklogWithObject(argv[j]);  // 写入参数
+            feedReplicationBacklog(aux+len+1,2);        // 写入换行符
         }
     }
 
@@ -263,12 +284,12 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
          * or are already in sync with the master. */
 
         /* Add the multi bulk length. */
-        addReplyMultiBulkLen(slave,argc);
+        addReplyMultiBulkLen(slave,argc);   // 发送整个命令长度
 
         /* Finally any additional argument that was not stored inside the
          * static buffer if any (from j to argc). */
         for (j = 0; j < argc; j++)
-            addReplyBulk(slave,argv[j]);
+            addReplyBulk(slave,argv[j]);    // 分别发送每个参数
     }
 }
 
@@ -300,6 +321,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     }
 }
 
+/* 向参数monitors内的所有客户端发送将要执行的命令内容 */
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;

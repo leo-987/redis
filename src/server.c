@@ -2116,14 +2116,16 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  *
  * This should not be used inside commands implementation. Use instead
  * alsoPropagate(), preventCommandPropagation(), forceCommandPropagation().
+ *
+ * 将参数对应的命令同步到AOF和slave
  */
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
-        feedAppendOnlyFile(cmd,dbid,argv,argc);
+        feedAppendOnlyFile(cmd,dbid,argv,argc);     // 同步到AOF
     if (flags & PROPAGATE_REPL)
-        replicationFeedSlaves(server.slaves,dbid,argv,argc);
+        replicationFeedSlaves(server.slaves,dbid,argv,argc);    // 同步到slave
 }
 
 /* Used inside commands to schedule the propagation of additional commands
@@ -2215,6 +2217,7 @@ void preventCommandReplication(client *c) {
  * preventCommandAOF(client *c);
  * preventCommandReplication(client *c);
  *
+ * 执行命令，然后同步数据到AOF和slave
  */
 void call(client *c, int flags) {
     long long dirty, start, duration;
@@ -2240,9 +2243,9 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    start = ustime();
-    c->cmd->proc(c);
-    duration = ustime()-start;
+    start = ustime();           // 命令开始时间
+    c->cmd->proc(c);            // 执行命令对应的回调函数
+    duration = ustime()-start;  // 命令耗时
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -2262,7 +2265,10 @@ void call(client *c, int flags) {
     }
 
     /* Log the command into the Slow log if needed, and populate the
-     * per-command statistics that we show in INFO commandstats. */
+     * per-command statistics that we show in INFO commandstats.
+     *
+     * slow log用来记录查询命令执行时间，数据保存在内存中
+     */
     if (flags & CMD_CALL_SLOWLOG && c->cmd->proc != execCommand) {
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
@@ -2270,22 +2276,32 @@ void call(client *c, int flags) {
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
+        /* 更新统计信息 */
         c->lastcmd->microseconds += duration;
         c->lastcmd->calls++;
     }
 
-    /* Propagate the command into the AOF and replication link */
+    /* Propagate the command into the AOF and replication link
+     *
+     * 将命令同步到AOF和slave
+     */
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
     {
         int propagate_flags = PROPAGATE_NONE;
 
         /* Check if the command operated changes in the data set. If so
-         * set for replication / AOF propagation. */
+         * set for replication / AOF propagation.
+         *
+         * 如果命令修改了DB数据，那么需要同步到AOF和slave
+         */
         if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* If the client forced AOF / replication of the command, set
-         * the flags regardless of the command effects on the data set. */
+         * the flags regardless of the command effects on the data set.
+         *
+         * 如果客户端强制同步到AOF和slave，那么设置对应的标志
+         */
         if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
@@ -2303,18 +2319,24 @@ void call(client *c, int flags) {
          * propagation is needed. Note that modules commands handle replication
          * in an explicit way, so we never replicate them automatically. */
         if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
-            propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
+            propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);    // 启动同步
     }
 
     /* Restore the old replication flags, since call() can be executed
-     * recursively. */
+     * recursively.
+     *
+     * 还原客户端flag
+     */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     c->flags |= client_old_flags &
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
     /* Handle the alsoPropagate() API to handle commands that want to propagate
      * multiple separated commands. Note that alsoPropagate() is not affected
-     * by CLIENT_PREVENT_PROP flag. */
+     * by CLIENT_PREVENT_PROP flag.
+     *
+     * 传播其它命令到AOF和slave，暂时忽略
+     * */
     if (server.also_propagate.numops) {
         int j;
         redisOp *rop;
@@ -2350,7 +2372,7 @@ int processCommand(client *c) {
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc.
      *
-     * quit命令请求服务端发送完响应之后关闭连接
+     * quit命令请求服务端关闭连接
      */
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
         addReply(c,shared.ok);
@@ -3403,7 +3425,7 @@ void monitorCommand(client *c) {
     if (c->flags & CLIENT_SLAVE) return;
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
-    listAddNodeTail(server.monitors,c);
+    listAddNodeTail(server.monitors,c); // 客户端发送MONITOR命令，将这个客户端加入monitors链表中
     addReply(c,shared.ok);
 }
 

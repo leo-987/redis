@@ -198,7 +198,10 @@ ssize_t aofRewriteBufferWrite(int fd) {
  * ------------------------------------------------------------------------- */
 
 /* Starts a background task that performs fsync() against the specified
- * file descriptor (the one of the AOF file) in another thread. */
+ * file descriptor (the one of the AOF file) in another thread.
+ *
+ * 唤醒后台线程执行fsync()系统调用，因为这个调用是一个耗时操作，因此不能阻塞主线程
+ */
 void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
@@ -326,22 +329,28 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  * flushed ASAP, and will try to do that in the serverCron() function.
  *
  * However if force is set to 1 we'll write regardless of the background
- * fsync. */
+ * fsync.
+ *
+ * 将AOF缓冲区的数据写入磁盘
+ */
 #define AOF_WRITE_LOG_ERROR_RATE 30 /* Seconds between errors logging. */
 void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
     int sync_in_progress = 0;
     mstime_t latency;
 
-    if (sdslen(server.aof_buf) == 0) return;
+    if (sdslen(server.aof_buf) == 0) return;    // AOF缓冲区为空，直接返回
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
-        sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+        sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;    // 检查是否有后台线程在执行fsync()
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
         /* With this append fsync policy we do background fsyncing.
          * If the fsync is still in progress we can try to delay
-         * the write for a couple of seconds. */
+         * the write for a couple of seconds.
+         *
+         * 如果已经有后台线程在执行fsync()，那么延迟本次操作
+         */
         if (sync_in_progress) {
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
@@ -354,7 +363,10 @@ void flushAppendOnlyFile(int force) {
                 return;
             }
             /* Otherwise fall trough, and go write since we can't wait
-             * over two seconds. */
+             * over two seconds.
+             *
+             * 如果等待超过了2s，强制执行本次写操作，后面的write会被阻塞
+             */
             server.aof_delayed_fsync++;
             serverLog(LL_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
@@ -366,7 +378,7 @@ void flushAppendOnlyFile(int force) {
      * or alike */
 
     latencyStartMonitor(latency);
-    nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
+    nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));   // 写入AFO文件
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
@@ -389,20 +401,28 @@ void flushAppendOnlyFile(int force) {
         static time_t last_write_error_log = 0;
         int can_log = 0;
 
-        /* Limit logging rate to 1 line per AOF_WRITE_LOG_ERROR_RATE seconds. */
+        /* Limit logging rate to 1 line per AOF_WRITE_LOG_ERROR_RATE seconds.
+         *
+         * 限制写错误日志的频率
+         */
         if ((server.unixtime - last_write_error_log) > AOF_WRITE_LOG_ERROR_RATE) {
             can_log = 1;
             last_write_error_log = server.unixtime;
         }
 
-        /* Log the AOF write error and record the error code. */
+        /* Log the AOF write error and record the error code.
+         *
+         * 记录写AOF错误到日志文件中
+         */
         if (nwritten == -1) {
+            // 写入失败
             if (can_log) {
                 serverLog(LL_WARNING,"Error writing to the AOF file: %s",
                     strerror(errno));
                 server.aof_last_write_errno = errno;
             }
         } else {
+            // 写入不完全
             if (can_log) {
                 serverLog(LL_WARNING,"Short write while writing to "
                                        "the AOF file: (nwritten=%lld, "
@@ -411,6 +431,7 @@ void flushAppendOnlyFile(int force) {
                                        (long long)sdslen(server.aof_buf));
             }
 
+            // 移除不完整内容
             if (ftruncate(server.aof_fd, server.aof_current_size) == -1) {
                 if (can_log) {
                     serverLog(LL_WARNING, "Could not remove short write "
@@ -426,7 +447,10 @@ void flushAppendOnlyFile(int force) {
             server.aof_last_write_errno = ENOSPC;
         }
 
-        /* Handle the AOF write error. */
+        /* Handle the AOF write error.
+         *
+         * 处理写入AOF出现的错误
+         */
         if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
             /* We can't recover when the fsync policy is ALWAYS since the
              * reply for the client is already in the output buffers, and we
@@ -441,7 +465,10 @@ void flushAppendOnlyFile(int force) {
             server.aof_last_write_status = C_ERR;
 
             /* Trim the sds buffer if there was a partial write, and there
-             * was no way to undo it with ftruncate(2). */
+             * was no way to undo it with ftruncate(2).
+             *
+             * 更新写入状态
+             */
             if (nwritten > 0) {
                 server.aof_current_size += nwritten;
                 sdsrange(server.aof_buf,nwritten,-1);
@@ -450,7 +477,10 @@ void flushAppendOnlyFile(int force) {
         }
     } else {
         /* Successful write(2). If AOF was in error state, restore the
-         * OK state and log the event. */
+         * OK state and log the event.
+         *
+         * 写入AOF成功，更新写入状态
+         */
         if (server.aof_last_write_status == C_ERR) {
             serverLog(LL_WARNING,
                 "AOF write error looks solved, Redis can write again.");
@@ -460,33 +490,46 @@ void flushAppendOnlyFile(int force) {
     server.aof_current_size += nwritten;
 
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
-     * arena size of 4k minus some overhead (but is otherwise arbitrary). */
+     * arena size of 4k minus some overhead (but is otherwise arbitrary).
+     *
+     * 程序到这里表示AOF缓冲区中的数据已全部成功写入AOF文件，因此可以清空
+     */
     if ((sdslen(server.aof_buf)+sdsavail(server.aof_buf)) < 4000) {
-        sdsclear(server.aof_buf);
+        sdsclear(server.aof_buf);   // 复用AOF缓冲区
     } else {
-        sdsfree(server.aof_buf);
+        sdsfree(server.aof_buf);    // 释放AOF缓冲区
         server.aof_buf = sdsempty();
     }
 
     /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
-     * children doing I/O in the background. */
+     * children doing I/O in the background.
+     *
+     * 满足一定条件，不执行fsync
+     */
     if (server.aof_no_fsync_on_rewrite &&
         (server.aof_child_pid != -1 || server.rdb_child_pid != -1))
             return;
 
-    /* Perform the fsync if needed. */
+    /* Perform the fsync if needed.
+     *
+     * 执行fsync，linux对应fdatasync系统调用
+     */
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
         /* aof_fsync is defined as fdatasync() for Linux in order to avoid
-         * flushing metadata. */
+         * flushing metadata.
+         *
+         * 每次都执行fsyn
+         */
         latencyStartMonitor(latency);
         aof_fsync(server.aof_fd); /* Let's try to get this data on the disk */
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
-        server.aof_last_fsync = server.unixtime;
+        server.aof_last_fsync = server.unixtime;    // 更新时间戳
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
+        /* 距离上次fsync超过了1s，并且没有后台线程执行fsync，本次可以执行fsync */
         if (!sync_in_progress) aof_background_fsync(server.aof_fd);
-        server.aof_last_fsync = server.unixtime;
+        server.aof_last_fsync = server.unixtime;    // 更新时间戳
     }
 }
 
@@ -552,6 +595,7 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     return buf;
 }
 
+/* 将命令追加到AOF文件中 */
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     robj *tmpargv[3];

@@ -233,13 +233,13 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
 #define CLIENT_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
 #define CLIENT_MASTER_FORCE_REPLY (1<<13)  /* Queue replies even if is master */
-#define CLIENT_FORCE_AOF (1<<14)   /* Force AOF propagation of current cmd. */
-#define CLIENT_FORCE_REPL (1<<15)  /* Force replication of current cmd. */
+#define CLIENT_FORCE_AOF (1<<14)   /* Force AOF propagation of current cmd. 客户端强制命令同步到AOF */
+#define CLIENT_FORCE_REPL (1<<15)  /* Force replication of current cmd. 客户端强制命令同步到slave */
 #define CLIENT_PRE_PSYNC (1<<16)   /* Instance don't understand PSYNC. */
 #define CLIENT_READONLY (1<<17)    /* Cluster client is in read-only state. */
 #define CLIENT_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
-#define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. */
-#define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. */
+#define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. 禁止数据同步到AOF */
+#define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. 禁止数据同步到slave */
 #define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
 #define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write
                                         handler is yet not installed. */
@@ -339,7 +339,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Append only defines */
 #define AOF_FSYNC_NO 0
 #define AOF_FSYNC_ALWAYS 1
-#define AOF_FSYNC_EVERYSEC 2
+#define AOF_FSYNC_EVERYSEC 2    // 每秒钟写一次AOF
 #define CONFIG_DEFAULT_AOF_FSYNC AOF_FSYNC_EVERYSEC
 
 /* Zip structure related defaults */
@@ -404,9 +404,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
 
 /* Command propagation flags, see propagate() function */
-#define PROPAGATE_NONE 0
-#define PROPAGATE_AOF 1
-#define PROPAGATE_REPL 2
+#define PROPAGATE_NONE 0    // 不同步
+#define PROPAGATE_AOF 1     // 数据同步到AOF
+#define PROPAGATE_REPL 2    // 数据同步到slave
 
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
@@ -678,9 +678,9 @@ typedef struct readyList {
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     int fd;                 /* Client socket. */
-    redisDb *db;            /* Pointer to currently SELECTed DB. */
+    redisDb *db;            /* Pointer to currently SELECTed DB. 客户端当前正在操作的DB */
     robj *name;             /* As set by CLIENT SETNAME. */
-    sds querybuf;           /* Buffer we use to accumulate client queries. */
+    sds querybuf;           /* Buffer we use to accumulate client queries. 客户端数据缓冲区 */
     sds pending_querybuf;   /* If this is a master, this buffer represents the
                                yet not applied replication stream that we
                                are receiving from the master. */
@@ -706,8 +706,8 @@ typedef struct client {
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
     sds replpreamble;       /* Replication DB preamble. */
-    long long read_reploff; /* Read replication offset if this is a master. */
-    long long reploff;      /* Applied replication offset if this is a master. */
+    long long read_reploff; /* Read replication offset if this is a master. master最新同步offset */
+    long long reploff;      /* Applied replication offset if this is a master. slave剩余未同步offset */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. slave返回响应的时刻 */
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
@@ -939,7 +939,7 @@ struct redisServer {
                         *pexpireCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
-    long long stat_numcommands;     /* Number of processed commands */
+    long long stat_numcommands;     /* Number of processed commands，已处理命令个数 */
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
@@ -1000,19 +1000,19 @@ struct redisServer {
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size. */
+    off_t aof_current_size;         /* AOF current size. AOF文件大小 */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
-    sds aof_buf;      /* AOF buffer, written before entering the event loop */
-    int aof_fd;       /* File descriptor of currently selected AOF file */
+    sds aof_buf;      /* AOF buffer, written before entering the event loop，AOF数据缓冲区 */
+    int aof_fd;       /* File descriptor of currently selected AOF file，AOF文件描述符 */
     int aof_selected_db; /* Currently selected DB in AOF */
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
-    unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
+    unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter，延迟执行fsync()的次数 */
     int aof_rewrite_incremental_fsync;/* fsync incrementally while rewriting? */
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
@@ -1029,7 +1029,7 @@ struct redisServer {
                                       to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
-    long long dirty;                /* Changes to DB from the last save */
+    long long dirty;                /* Changes to DB from the last save，标志数据库是否被修改 */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
     struct saveparam *saveparams;   /* Save points array for RDB */
@@ -1055,7 +1055,7 @@ struct redisServer {
         unsigned long long magic;   /* Magic value to make sure data is valid. */
     } child_info_data;
     /* Propagation of commands in AOF / replication */
-    redisOpArray also_propagate;    /* Additional command to propagate. */
+    redisOpArray also_propagate;    /* Additional command to propagate. 需要额外传播的命令 */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -1064,17 +1064,17 @@ struct redisServer {
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
-    long long master_repl_offset;   /* My current replication offset */
+    long long master_repl_offset;   /* My current replication offset，同步复制offset，指向有效数据末尾 */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
-    int slaveseldb;                 /* Last SELECTed DB in replication output */
+    int slaveseldb;                 /* Last SELECTed DB in replication output，上一次传播选中的DB */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    char *repl_backlog;             /* Replication backlog for partial syncs */
-    long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long repl_backlog_histlen; /* Backlog actual data length */
+    char *repl_backlog;             /* Replication backlog for partial syncs，复制积压缓冲区 */
+    long long repl_backlog_size;    /* Backlog circular buffer size，同步积压缓冲区大小 */
+    long long repl_backlog_histlen; /* Backlog actual data length，同步积压缓冲区实际数据长度 */
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-                                       that is the next byte will'll write to.*/
+                                       that is the next byte will'll write to. 同步积压缓冲区下一次数据写入地址 */
     long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
+                                       byte in the replication backlog buffer. 同步积压缓冲区有效数据头部索引 */
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
@@ -1086,8 +1086,8 @@ struct redisServer {
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
-    char *masterhost;               /* Hostname of master */
-    int masterport;                 /* Port of master */
+    char *masterhost;               /* Hostname of master，master地址 */
+    int masterport;                 /* Port of master，master端口 */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave */
     client *cached_master; /* Cached master to be reused for PSYNC. */

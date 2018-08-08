@@ -486,7 +486,12 @@ void addReplyHumanLongDouble(client *c, long double d) {
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
- * Basically this is used to output <prefix><long long><crlf>. */
+ * Basically this is used to output <prefix><long long><crlf>.
+ *
+ * 构造命令/参数长度并发送到参数c指定的目的地
+ * 命令长度 = '*len/r/n'
+ * 参数长度 = '$len/r/n'
+ */
 void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     char buf[128];
     int len;
@@ -551,11 +556,14 @@ void addReplyBulkLen(client *c, robj *obj) {
         addReplyLongLongWithPrefix(c,len,'$');
 }
 
-/* Add a Redis Object as a bulk reply */
+/* Add a Redis Object as a bulk reply
+ *
+ * 发送命令或单个参数到目的端
+ */
 void addReplyBulk(client *c, robj *obj) {
-    addReplyBulkLen(c,obj);
-    addReply(c,obj);
-    addReply(c,shared.crlf);
+    addReplyBulkLen(c,obj);     // 长度
+    addReply(c,obj);            // 内容
+    addReply(c,shared.crlf);    // \r\n
 }
 
 /* Add a C buffer as bulk reply */
@@ -1035,11 +1043,14 @@ int handleClientsWithPendingWrites(void) {
     return processed;
 }
 
-/* resetClient prepare the client to process the next command */
+/* resetClient prepare the client to process the next command
+ *
+ * 重置客户端状态，以便准备下一个命令的执行
+ */
 void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
-    freeClientArgv(c);
+    freeClientArgv(c);  // 清空命令行参数
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
@@ -1069,7 +1080,7 @@ void resetClient(client *c) {
  *
  * 从客户端querybuf中读取一行命令和参数并解析
  * 例如：
- * cmd arg1 arg2\n
+ * cmd arg1 arg2\r\n
  * 则解析为
  * c->argv[0] = cmd
  * c->argv[1] = arg1
@@ -1346,10 +1357,16 @@ int processMultibulkBuffer(client *c) {
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
- * pending query buffer, already representing a full command, to process. */
+ * pending query buffer, already representing a full command, to process.
+ *
+ * 循环读取、解析、处理缓冲区中的命令
+ */
 void processInputBuffer(client *c) {
     server.current_client = c;
-    /* Keep processing while there is something in the input buffer */
+    /* Keep processing while there is something in the input buffer
+     *
+     * 尽力读取并处理缓冲区中的完整命令
+     */
     while(sdslen(c->querybuf)) {
         /* Return if clients are paused. */
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
@@ -1364,8 +1381,10 @@ void processInputBuffer(client *c) {
          * The same applies for clients we want to terminate ASAP. */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
-        /* Determine request type when unknown. */
-        /* 确定查询类型是来自telnet还是redis客户端 */
+        /* Determine request type when unknown.
+         *
+         * 确定查询类型是来自telnet还是redis客户端
+         */
         if (!c->reqtype) {
             if (c->querybuf[0] == '*') {
                 c->reqtype = PROTO_REQ_MULTIBULK;
@@ -1390,14 +1409,20 @@ void processInputBuffer(client *c) {
             /* 处理请求，然后重置客户端 */
             if (processCommand(c) == C_OK) {
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
-                    /* Update the applied replication offset of our master. */
+                    /* Update the applied replication offset of our master.
+                     *
+                     * 已执行完一条命令，更新同步offset
+                     */
                     c->reploff = c->read_reploff - sdslen(c->querybuf);
                 }
 
                 /* Don't reset the client structure for clients blocked in a
                  * module blocking command, so that the reply callback will
                  * still be able to access the client argv and argc field.
-                 * The client will be reset in unblockClientFromModule(). */
+                 * The client will be reset in unblockClientFromModule().
+                 *
+                 * 如果客户端请求的是阻塞命令，则不能重置客户端
+                 */
                 if (!(c->flags & CLIENT_BLOCKED) || c->btype != BLOCKED_MODULE)
                     resetClient(c);
             }
