@@ -727,8 +727,8 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
 
     /* Response buffer */
-    int bufpos;
-    char buf[PROTO_REPLY_CHUNK_BYTES];
+    int bufpos;     // 响应数据长度
+    char buf[PROTO_REPLY_CHUNK_BYTES];  // 响应缓冲区
 } client;
 
 struct saveparam {

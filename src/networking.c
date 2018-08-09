@@ -610,7 +610,10 @@ void copyClientOutputBuffer(client *dst, client *src) {
 }
 
 /* Return true if the specified client has pending reply buffers to write to
- * the socket. */
+ * the socket.
+ *
+ * 判断客户端是否在等待响应
+ */
 int clientHasPendingReplies(client *c) {
     return c->bufpos || listLength(c->reply);
 }
@@ -902,7 +905,10 @@ void freeClientsInAsyncFreeQueue(void) {
 }
 
 /* Write data in output buffers to client. Return C_OK if the client
- * is still valid after the call, C_ERR if it was freed. */
+ * is still valid after the call, C_ERR if it was freed.
+ *
+ * 写socket发送数据
+ */
 int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
@@ -998,13 +1004,17 @@ int writeToClient(int fd, client *c, int handler_installed) {
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
-    writeToClient(fd,privdata,1);
+    writeToClient(fd,privdata,1);   // 可写回调函数中调用它
 }
 
 /* This function is called just before entering the event loop, in the hope
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
- * get it called, and so forth. */
+ * get it called, and so forth.
+ *
+ * 处理每个客户端的响应buffer中的数据，将它们发送出去
+ * 如果socket暂时不可写，则注册epoll事件
+ */
 int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;
@@ -1017,10 +1027,13 @@ int handleClientsWithPendingWrites(void) {
         listDelNode(server.clients_pending_write,ln);
 
         /* Try to write buffers to the client socket. */
-        if (writeToClient(c->fd,c,0) == C_ERR) continue;
+        if (writeToClient(c->fd,c,0) == C_ERR) continue;    // 主动发送
 
         /* If after the synchronous writes above we still have data to
-         * output to the client, we need to install the writable handler. */
+         * output to the client, we need to install the writable handler.
+         *
+         * 还有数据在输出缓冲区，那么注册epoll可写事件
+         */
         if (clientHasPendingReplies(c)) {
             int ae_flags = AE_WRITABLE;
             /* For the fsync=always policy, we want that a given FD is never

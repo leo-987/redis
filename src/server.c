@@ -1182,7 +1182,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
- * for ready file descriptors. */
+ * for ready file descriptors.
+ *
+ * 进入event loop之前被调用
+ */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
@@ -1228,10 +1231,16 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (listLength(server.unblocked_clients))
         processUnblockedClients();  // 处理unblocked队列中的client
 
-    /* Write the AOF buffer on disk */
+    /* Write the AOF buffer on disk
+     *
+     * 将AOF缓冲区中的数据写入AOF文件
+     */
     flushAppendOnlyFile(0);
 
-    /* Handle writes with pending output buffers. */
+    /* Handle writes with pending output buffers.
+     *
+     * 将输出缓冲区中的数据发送出去
+     */
     handleClientsWithPendingWrites();
 
     /* Before we are going to sleep, let the threads access the dataset by
@@ -3967,7 +3976,7 @@ int main(int argc, char **argv) {
 
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
-    aeMain(server.el);
+    aeMain(server.el);  // 进去死循环
     aeDeleteEventLoop(server.el);
     return 0;
 }
