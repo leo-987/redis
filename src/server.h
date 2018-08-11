@@ -676,11 +676,11 @@ typedef struct readyList {
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
-    uint64_t id;            /* Client incremental unique ID. */
-    int fd;                 /* Client socket. */
+    uint64_t id;            /* Client incremental unique ID. 客户端ID */
+    int fd;                 /* Client socket. 客户端socket描述符 */
     redisDb *db;            /* Pointer to currently SELECTed DB. 客户端当前正在操作的DB */
     robj *name;             /* As set by CLIENT SETNAME. */
-    sds querybuf;           /* Buffer we use to accumulate client queries. 客户端数据缓冲区 */
+    sds querybuf;           /* Buffer we use to accumulate client queries. 客户端接收缓冲区 */
     sds pending_querybuf;   /* If this is a master, this buffer represents the
                                yet not applied replication stream that we
                                are receiving from the master. */
@@ -690,7 +690,7 @@ typedef struct client {
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. 客户端命令+参数个数之和，初始值为0 */
-    long bulklen;           /* Length of bulk argument in multi bulk request. 命令或参数字符长度 */
+    long bulklen;           /* Length of bulk argument in multi bulk request. 当前正在解析的命令或参数的字符长度 */
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     size_t sentlen;         /* Amount of bytes already sent in the current
@@ -706,8 +706,8 @@ typedef struct client {
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
     sds replpreamble;       /* Replication DB preamble. */
-    long long read_reploff; /* Read replication offset if this is a master. master最新同步offset */
-    long long reploff;      /* Applied replication offset if this is a master. slave剩余未同步offset */
+    long long read_reploff; /* Read replication offset if this is a master. 已从socket读到的复制偏移量 */
+    long long reploff;      /* Applied replication offset if this is a master. 已执行的复制偏移量 */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. slave返回响应的时刻 */
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
@@ -911,12 +911,12 @@ struct redisServer {
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
-    int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors，监听socket fd */
+    int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors，客户端监听socket */
     int ipfd_count;             /* Used slots in ipfd[]，监听fd个数 */
     int sofd;                   /* Unix socket file descriptor */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket，集群socket fd */
     int cfd_count;              /* Used slots in cfd[]，集群fd个数 */
-    list *clients;              /* List of active clients */
+    list *clients;              /* List of active clients，客户端链表 */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
@@ -940,7 +940,7 @@ struct redisServer {
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands，已处理命令个数 */
-    long long stat_numconnections;  /* Number of connections received */
+    long long stat_numconnections;  /* Number of connections received，接受连接次数 */
     long long stat_expiredkeys;     /* Number of expired keys */
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
@@ -954,7 +954,7 @@ struct redisServer {
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
-    long long stat_rejected_conn;   /* Clients rejected because of maxclients */
+    long long stat_rejected_conn;   /* Clients rejected because of maxclients，拒绝连接的次数 */
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
     long long stat_sync_partial_err;/* Number of unaccepted PSYNC requests. */
@@ -963,7 +963,7 @@ struct redisServer {
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     size_t resident_set_size;       /* RSS sampled in serverCron(). */
-    long long stat_net_input_bytes; /* Bytes read from network. */
+    long long stat_net_input_bytes; /* Bytes read from network. 从网络读到的字节数 */
     long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
@@ -1089,7 +1089,7 @@ struct redisServer {
     char *masterhost;               /* Hostname of master，master地址 */
     int masterport;                 /* Port of master，master端口 */
     int repl_timeout;               /* Timeout after N seconds of master idle */
-    client *master;     /* Client that is master for this slave */
+    client *master;     /* Client that is master for this slave，master客户端 */
     client *cached_master; /* Cached master to be reused for PSYNC. */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */

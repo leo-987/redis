@@ -500,7 +500,7 @@ void clusterInit(void) {
         int j;
 
         for (j = 0; j < server.cfd_count; j++) {
-            if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
+            if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,    // 注册集群新连接事件
                 clusterAcceptHandler, NULL) == AE_ERR)
                     serverPanic("Unrecoverable error creating Redis Cluster "
                                 "file event.");
@@ -636,7 +636,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (server.masterhost == NULL && server.loading) return;
 
     while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);   // 接受集群内其它redis连接请求
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
                 serverLog(LL_VERBOSE,
@@ -655,7 +655,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
          * node identity. */
         link = createClusterLink(NULL);
         link->fd = cfd;
-        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);   // 注册集群连接可读事件
     }
 }
 
@@ -2197,7 +2197,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     if (sdslen(link->sndbuf) == 0 && msglen != 0)
-        aeCreateFileEvent(server.el,link->fd,AE_WRITABLE|AE_BARRIER,
+        aeCreateFileEvent(server.el,link->fd,AE_WRITABLE|AE_BARRIER,    // 注册集群连接可写事件
                     clusterWriteHandler,link);
 
     link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);

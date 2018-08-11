@@ -67,19 +67,27 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
+/* 1. 创建新客户端对象
+ * 2. 初始化对象成员
+ * 3. 加入客户端链表
+ * */
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
     /* passing -1 as fd it is possible to create a non connected client.
      * This is useful since all the commands needs to be executed
      * in the context of a client. When commands are executed in other
-     * contexts (for instance a Lua script) we need a non connected client. */
+     * contexts (for instance a Lua script) we need a non connected client.
+     *
+     * fd != -1表示网络终端
+     * fd == -1表示伪终端
+     */
     if (fd != -1) {
         anetNonBlock(NULL,fd);
         anetEnableTcpNoDelay(NULL,fd);
         if (server.tcpkeepalive)
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
-        if (aeCreateFileEvent(server.el,fd,AE_READABLE,
+        if (aeCreateFileEvent(server.el,fd,AE_READABLE,    // 注册客户端连接可读事件
             readQueryFromClient, c) == AE_ERR)
         {
             close(fd);
@@ -88,7 +96,7 @@ client *createClient(int fd) {
         }
     }
 
-    selectDb(c,0);
+    selectDb(c,0);  // 默认选择0号DB
     uint64_t client_id;
     atomicGetIncr(server.next_client_id,client_id,1);
     c->id = client_id;
@@ -619,9 +627,11 @@ int clientHasPendingReplies(client *c) {
 }
 
 #define MAX_ACCEPTS_PER_CALL 1000
+
+/* 处理新连接，构建客户端对象 */
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
-    if ((c = createClient(fd)) == NULL) {
+    if ((c = createClient(fd)) == NULL) {   // 创建客户端对象
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
             strerror(errno),fd);
@@ -631,7 +641,10 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
-     * mode and we can send an error for free using the Kernel I/O */
+     * mode and we can send an error for free using the Kernel I/O
+     *
+     * 连接数超过上限，返回错误信息给客户端，然后关闭连接
+     */
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
@@ -647,7 +660,10 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     /* If the server is running in protected mode (the default) and there
      * is no password set, nor a specific interface is bound, we don't accept
      * requests from non loopback interfaces. Instead we try to explain the
-     * user what to do to fix it if needed. */
+     * user what to do to fix it if needed.
+     *
+     * 鉴权相关
+     */
     if (server.protected_mode &&
         server.bindaddr_count == 0 &&
         server.requirepass == NULL &&
@@ -689,6 +705,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     c->flags |= flags;
 }
 
+/* 新连接事件回调函数 */
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
@@ -697,7 +714,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
 
     while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);   // 接受客户端连接请求
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
@@ -1046,7 +1063,7 @@ int handleClientsWithPendingWrites(void) {
             {
                 ae_flags |= AE_BARRIER;
             }
-            if (aeCreateFileEvent(server.el, c->fd, ae_flags,
+            if (aeCreateFileEvent(server.el, c->fd, ae_flags,    // 注册客户端连接可写事件
                 sendReplyToClient, c) == AE_ERR)
             {
                     freeClientAsync(c);
@@ -1276,7 +1293,7 @@ int processMultibulkBuffer(client *c) {
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
-            /* 每个命令或参数的开头是长度字段，先解析出长度字段，然后才能 */
+            /* 每个命令或参数的开头是长度字段，先解析出长度字段 */
             newline = strchr(c->querybuf+pos,'\r');
             if (newline == NULL) {
                 if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
@@ -1325,7 +1342,7 @@ int processMultibulkBuffer(client *c) {
                 if (qblen < (size_t)ll+2)
                     c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-qblen);
             }
-            c->bulklen = ll;
+            c->bulklen = ll;    // 单个命令或参数的字符长度
         }
 
         /* Read bulk argument */
@@ -1424,7 +1441,7 @@ void processInputBuffer(client *c) {
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
                     /* Update the applied replication offset of our master.
                      *
-                     * 已执行完一条命令，更新同步offset
+                     * 已执行完一条由master传来，且不处于事务之中的命令，立即更新复制offset
                      */
                     c->reploff = c->read_reploff - sdslen(c->querybuf);
                 }
@@ -1448,6 +1465,10 @@ void processInputBuffer(client *c) {
     server.current_client = NULL;
 }
 
+/* 客户端连接可读事件回调函数
+ * 1. 读取socket数据到querybuf中
+ * 2. 解析并处理读到的命令
+ */
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     client *c = (client*) privdata;
     int nread, readlen;
@@ -1461,10 +1482,15 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * buffer contains exactly the SDS string representing the object, even
      * at the risk of requiring more read(2) calls. This way the function
      * processMultiBulkBuffer() can avoid copying buffers to create the
-     * Redis Object representing the argument. */
+     * Redis Object representing the argument.
+     *
+     * 请求类型初始值为0，需要在后面解析的时候才能确定类型
+     * 如果上一个参数没有解析完，那么还有一部分在socket buffer中，这次继续从socket读取剩余的部分到querybuf中
+     */
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
+        // 计算剩余部分长度
         ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
 
         if (remaining < readlen) readlen = remaining;
@@ -1489,7 +1515,10 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     } else if (c->flags & CLIENT_MASTER) {
         /* Append the query buffer to the pending (not applied) buffer
          * of the master. We'll use this buffer later in order to have a
-         * copy of the string applied by the last command executed. */
+         * copy of the string applied by the last command executed.
+         *
+         * 如果数据来自master，则将数据移动到pending_querybuf中，querybuf中的数据失效
+         */
         c->pending_querybuf = sdscatlen(c->pending_querybuf,
                                         c->querybuf+qblen,nread);
     }
@@ -1499,6 +1528,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     server.stat_net_input_bytes += nread;
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
+        // querybuf长度超过最大值，关闭客户端连接
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
@@ -1514,17 +1544,21 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * processing the buffer, to understand how much of the replication stream
      * was actually applied to the master state: this quantity, and its
      * corresponding part of the replication stream, will be propagated to
-     * the sub-slaves and to the replication backlog. */
+     * the sub-slaves and to the replication backlog.
+     *
+     * sub-slaves是redis 4.0新特性
+     */
     if (!(c->flags & CLIENT_MASTER)) {
-        processInputBuffer(c);
+        processInputBuffer(c);  // 处理客户端请求命令
     } else {
         size_t prev_offset = c->reploff;
-        processInputBuffer(c);
+        processInputBuffer(c);  // 处理master请求命令
         size_t applied = c->reploff - prev_offset;
         if (applied) {
+            // 将执行完的命令传到sub-slaves
             replicationFeedSlavesFromMasterStream(server.slaves,
                     c->pending_querybuf, applied);
-            sdsrange(c->pending_querybuf,applied,-1);
+            sdsrange(c->pending_querybuf,applied,-1);   // 清除已执行的命令内容
         }
     }
 }

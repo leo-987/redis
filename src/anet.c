@@ -91,7 +91,10 @@ int anetBlock(char *err, int fd) {
 
 /* Set TCP keep alive option to detect dead peers. The interval option
  * is only used for Linux as we are using Linux-specific APIs to set
- * the probe send time, interval, and count. */
+ * the probe send time, interval, and count.
+ *
+ * 设置保活定时器检测周期，默认5min
+ */
 int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
@@ -546,18 +549,24 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return fd;
 }
 
+/* 调用accept接收新连接，两个地方被调用：
+ *   1. 客户端连接请求
+ *   2. 集群内其它redis请求
+ */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1) // 内部调用accept
         return ANET_ERR;
 
     if (sa.ss_family == AF_INET) {
+        // 获取IPv4地址
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
         if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin_port);
     } else {
+        // 获取IPv6地址
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
         if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin6_port);

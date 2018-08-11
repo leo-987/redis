@@ -204,7 +204,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* Send SELECT command to every slave if needed.
      *
-     * 如果之前传播命令对应的DB和当前要传播命令对应的DB不同，那么需要请求slave切换DB
+     * 如果之前传播命令对应的DB和当前要传播命令对应的DB不同，那么需要发送SELECT命令请求slave切换DB
      */
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
@@ -271,7 +271,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
     }
 
-    /* Write the command to every slave. */
+    /* Write the command to every slave.
+     *
+     * 发送命令到所有slave
+     */
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
@@ -1097,7 +1100,7 @@ void replicationEmptyDbCallback(void *privdata) {
  * performed, this function materializes the master client we store
  * at server.master, starting from the specified file descriptor. */
 void replicationCreateMasterClient(int fd, int dbid) {
-    server.master = createClient(fd);
+    server.master = createClient(fd);   // master当做一个客户端来对待
     server.master->flags |= CLIENT_MASTER;
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
@@ -2011,6 +2014,9 @@ void replicationHandleMasterDisconnection(void) {
      * the slaves only if we'll have to do a full resync with our master. */
 }
 
+/* SLAVEOF host port
+ * 将制定的服务器和端口作为master
+ */
 void slaveofCommand(client *c) {
     /* SLAVEOF is not allowed in cluster mode as replication is automatically
      * configured using the current address of the master node. */

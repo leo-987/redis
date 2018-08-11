@@ -1940,24 +1940,25 @@ void initServer(void) {
     }
 
     /* Create an event handler for accepting new connections in TCP and Unix
-     * domain sockets. */
-    /* 将监听socket加入epoll，监听其可读事件 */
+     * domain sockets.
+     *
+     * 将监听socket加入epoll，监听新连接事件
+     */
     for (j = 0; j < server.ipfd_count; j++) {
-        if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
+        if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,    // 注册客户端新连接事件
             acceptTcpHandler,NULL) == AE_ERR)
             {
                 serverPanic(
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
-    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
+    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,    // UNIX套接字新连接事件
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
 
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
-    /* 先忽略 */
-    if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
+    if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,    // 先忽略
         moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
             serverPanic(
                 "Error registering the readable event for the module "
@@ -2126,7 +2127,7 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  * This should not be used inside commands implementation. Use instead
  * alsoPropagate(), preventCommandPropagation(), forceCommandPropagation().
  *
- * 将参数对应的命令同步到AOF和slave
+ * 将命令同步到AOF和slave
  */
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
@@ -2326,7 +2327,10 @@ void call(client *c, int flags) {
 
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. Note that modules commands handle replication
-         * in an explicit way, so we never replicate them automatically. */
+         * in an explicit way, so we never replicate them automatically.
+         *
+         * 将命令同步到AOF和slave
+         */
         if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);    // 启动同步
     }
@@ -2345,7 +2349,7 @@ void call(client *c, int flags) {
      * by CLIENT_PREVENT_PROP flag.
      *
      * 传播其它命令到AOF和slave，暂时忽略
-     * */
+     */
     if (server.also_propagate.numops) {
         int j;
         redisOp *rop;
@@ -2390,7 +2394,10 @@ int processCommand(client *c) {
     }
 
     /* Now lookup the command and check ASAP about trivial error conditions
-     * such as wrong arity, bad command name and so forth. */
+     * such as wrong arity, bad command name and so forth.
+     *
+     * 从命令表中查找命令对象
+     */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         /* 空命令 */
@@ -2576,7 +2583,10 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Exec the command */
+    /* Exec the command
+     *
+     * 执行命令
+     */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
