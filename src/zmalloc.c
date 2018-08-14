@@ -316,6 +316,8 @@ float zmalloc_get_fragmentation_ratio(size_t rss) {
  * current process.
  *
  * Example: zmalloc_get_smap_bytes_by_field("Rss:",-1);
+ *
+ * 获取子进程copy on write的内存大小
  */
 #if defined(HAVE_PROC_SMAPS)
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {

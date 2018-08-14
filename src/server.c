@@ -950,8 +950,9 @@ void updateCachedTime(void) {
  * Everything directly called here will be called server.hz times per second,
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
+ *
+ * 定时指定任务
  */
-/* 定时指定任务 */
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);
@@ -2503,7 +2504,7 @@ int processCommand(client *c) {
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option.
      *
-     * 如果开启了min-slaves-to-write选项，那么必须保证有足够多正常的slave才能执行写操作
+     * 如果开启了min-slaves-to-write选项，那么必须保证有足够多低延迟的slave才能执行写操作
      */
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
@@ -2511,6 +2512,7 @@ int processCommand(client *c) {
         c->cmd->flags & CMD_WRITE &&
         server.repl_good_slaves_count < server.repl_min_slaves_to_write)
     {
+        // 低延迟slave个数太少，无法执行写操作
         flagTransaction(c);
         addReply(c, shared.noreplicaserr);
         return C_OK;

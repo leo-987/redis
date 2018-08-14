@@ -76,6 +76,7 @@ void receiveChildInfo(void) {
     if (read(server.child_info_pipe[0],&server.child_info_data,wlen) == wlen &&
         server.child_info_data.magic == CHILD_INFO_MAGIC)
     {
+        // 从pipe接收到子进程的消息
         if (server.child_info_data.process_type == CHILD_INFO_TYPE_RDB) {
             server.stat_rdb_cow_bytes = server.child_info_data.cow_size;
         } else if (server.child_info_data.process_type == CHILD_INFO_TYPE_AOF) {

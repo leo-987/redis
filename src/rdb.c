@@ -1059,6 +1059,7 @@ werr:
     return C_ERR;
 }
 
+/* fork一个子进程写RDB */
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
     long long start;
@@ -1076,7 +1077,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         /* Child */
         closeListeningSockets(0);
         redisSetProcTitle("redis-rdb-bgsave");
-        retval = rdbSave(filename,rsi);
+        retval = rdbSave(filename,rsi); // 写RDB文件
         if (retval == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty(-1);
 

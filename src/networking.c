@@ -620,7 +620,7 @@ void copyClientOutputBuffer(client *dst, client *src) {
 /* Return true if the specified client has pending reply buffers to write to
  * the socket.
  *
- * 判断客户端是否在等待响应
+ * 判断发送缓冲区中是否有数据要发送出去
  */
 int clientHasPendingReplies(client *c) {
     return c->bufpos || listLength(c->reply);
@@ -755,7 +755,10 @@ static void freeClientArgv(client *c) {
 
 /* Close all the slaves connections. This is useful in chained replication
  * when we resync with our own master and want to force all our slaves to
- * resync with us as well. */
+ * resync with us as well.
+ *
+ * 断开和所有slave的连接，强制所有slave进行完全重同步
+ */
 void disconnectSlaves(void) {
     while (listLength(server.slaves)) {
         listNode *ln = listFirst(server.slaves);
@@ -1389,7 +1392,7 @@ int processMultibulkBuffer(client *c) {
  * or because a client was blocked and later reactivated, so there could be
  * pending query buffer, already representing a full command, to process.
  *
- * 循环读取、解析、处理缓冲区中的命令
+ * 循环读取、解析、执行缓冲区中的命令
  */
 void processInputBuffer(client *c) {
     server.current_client = c;
@@ -1435,8 +1438,10 @@ void processInputBuffer(client *c) {
         if (c->argc == 0) {
             resetClient(c); // 没有要处理的命令，直接重置客户端
         } else {
-            /* Only reset the client when the command was executed. */
-            /* 处理请求，然后重置客户端 */
+            /* Only reset the client when the command was executed.
+             *
+             * 处理请求，然后重置客户端
+             */
             if (processCommand(c) == C_OK) {
                 if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
                     /* Update the applied replication offset of our master.
@@ -1465,7 +1470,7 @@ void processInputBuffer(client *c) {
     server.current_client = NULL;
 }
 
-/* 客户端连接可读事件回调函数
+/* 客户端/master连接可读事件回调函数
  * 1. 读取socket数据到querybuf中
  * 2. 解析并处理读到的命令
  */
