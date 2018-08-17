@@ -455,7 +455,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * before replying to a client.
              *
              * 翻转可读可写顺序，优先执行可写事件
-             * */
+             */
             int invert = fe->mask & AE_BARRIER;
 
 	        /* Note the "fe->mask & mask & ..." code: maybe an already

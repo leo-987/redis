@@ -3628,6 +3628,7 @@ void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
  * argv[0] contains "redis-sentinel".
+ *
  * 1. 可以通过 redis-sentinel /path/to/sentinel.conf 程序启动sentinel
  * 2. 可以通过 redis-server /path/to/sentinel.conf --sentinel 启动sentinel模式的redis服务器
  */
@@ -3836,10 +3837,10 @@ int main(int argc, char **argv) {
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     char hashseed[16];
-    getRandomHexChars(hashseed,sizeof(hashseed));       // 创建一个随机的redis实例id
+    getRandomHexChars(hashseed,sizeof(hashseed));       // 创建一个随机的run id
     dictSetHashFunctionSeed((uint8_t*)hashseed);        // 用实例id设置哈希函数种子
     server.sentinel_mode = checkForSentinelMode(argc,argv); // 通过命令行参数检查是否为sentinel模式
-    initServerConfig(); // 初始化默认配置
+    initServerConfig();         // 初始化默认配置
     moduleInitModulesSystem();  // 这玩意暂时没啥用
 
     /* Store the executable path and arguments in a safe place in order
