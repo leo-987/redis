@@ -303,10 +303,12 @@ void freeModuleObject(robj *o) {
     zfree(mv);
 }
 
+// 将对象引用计数+1
 void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
+// 将对象引用计数-1，当引用计数变为0时，释放对象
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {
@@ -343,6 +345,8 @@ void decrRefCountVoid(void *o) {
  *    *obj = createObject(...);
  *    functionThatWillIncrementRefCount(obj);
  *    decrRefCount(obj);
+ *
+ * 将对象引用计数设为0，但不释放对象
  */
 robj *resetRefCount(robj *obj) {
     obj->refcount = 0;

@@ -199,19 +199,24 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * a key, whatever it was existing or not, to a new object.
  *
  * 1) The ref count of the value object is incremented.
+ *    值对象的引用计数会被增加
+ *
  * 2) clients WATCHing for the destination key notified.
+ *    监视键key的客户端会收到键已经被修改的通知
+ *
  * 3) The expire time of the key is reset (the key is made persistent).
+ *    键的过期时间会被移除（键变为持久的）
  *
  * All the new keys in the database should be craeted via this interface. */
 void setKey(redisDb *db, robj *key, robj *val) {
     if (lookupKeyWrite(db,key) == NULL) {
-        dbAdd(db,key,val);
+        dbAdd(db,key,val);          // 如果key不存在，则添加
     } else {
-        dbOverwrite(db,key,val);
+        dbOverwrite(db,key,val);    // 如果key存在，则覆盖
     }
-    incrRefCount(val);
-    removeExpire(db,key);
-    signalModifiedKey(db,key);
+    incrRefCount(val);              // 增加value引用计数
+    removeExpire(db,key);           // 移除过期时间
+    signalModifiedKey(db,key);      // 标记监听了该key的客户端
 }
 
 int dbExists(redisDb *db, robj *key) {
@@ -1030,6 +1035,7 @@ void swapdbCommand(client *c) {
  * Expires API
  *----------------------------------------------------------------------------*/
 
+// 删除一个key的过期时间
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
@@ -1040,7 +1046,10 @@ int removeExpire(redisDb *db, robj *key) {
 /* Set an expire to the specified key. If the expire is set in the context
  * of an user calling a command 'c' is the client, otherwise 'c' is set
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
- * after which the key will no longer be considered valid. */
+ * after which the key will no longer be considered valid.
+ *
+ * 设置key的过期时间，参数when是一个绝对过期时间
+ */
 void setExpire(client *c, redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
