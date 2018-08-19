@@ -2228,7 +2228,8 @@ void preventCommandReplication(client *c) {
  * preventCommandAOF(client *c);
  * preventCommandReplication(client *c);
  *
- * 执行命令，然后同步数据到AOF和slave
+ * 1. 执行命令对应的回调函数，返回客户端响应
+ * 2. 同步数据到AOF和slave，同步操作是异步完成的
  */
 void call(client *c, int flags) {
     long long dirty, start, duration;
@@ -2415,7 +2416,10 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Check if the user is authenticated */
+    /* Check if the user is authenticated
+     *
+     * 检查客户端权限
+     */
     if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
     {
         flagTransaction(c);
@@ -2458,7 +2462,10 @@ int processCommand(client *c) {
      *
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
-     * is returning an error. */
+     * is returning an error.
+     *
+     * 检查内存大小
+     */
     if (server.maxmemory) {
         int retval = freeMemoryIfNeeded();  // 尝试释放更多内存空间
         /* freeMemoryIfNeeded may flush slave output buffers. This may result

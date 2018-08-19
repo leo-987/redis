@@ -1086,7 +1086,7 @@ struct redisServer {
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
-    char *masterhost;               /* Hostname of master，master地址 */
+    char *masterhost;               /* Hostname of master，master地址，非空表示本机为slave */
     int masterport;                 /* Port of master，master端口 */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave，master客户端 */
@@ -1152,8 +1152,8 @@ struct redisServer {
     time_t unixtime;    /* Unix time sampled every cron cycle. */
     long long mstime;   /* Like 'unixtime' but with milliseconds resolution. */
     /* Pubsub */
-    dict *pubsub_channels;  /* Map channels to list of subscribed clients */
-    list *pubsub_patterns;  /* A list of pubsub_patterns */
+    dict *pubsub_channels;  /* Map channels to list of subscribed clients，保存了所有频道订阅关系的字典 */
+    list *pubsub_patterns;  /* A list of pubsub_patterns，保存了所有模式订阅关系的链表 */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     /* Cluster */
@@ -1211,6 +1211,7 @@ struct redisServer {
     pthread_mutex_t unixtime_mutex;
 };
 
+// 包含一个被订阅的模式和订阅了该模式的一个客户端
 typedef struct pubsubPattern {
     client *client;
     robj *pattern;

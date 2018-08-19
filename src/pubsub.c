@@ -54,7 +54,12 @@ int clientSubscriptionsCount(client *c) {
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
- * 0 if the client was already subscribed to that channel. */
+ * 0 if the client was already subscribed to that channel.
+ *
+ * 将客户端订阅到某个频道上
+ * 如果频道已存在订阅字典中，那么将客户端加入到这个频道对应的客户端链表的末尾
+ * 如果频道不在订阅字典中，那么在字典中添加这个频道和对应的空链表，然后将客户端放入链表中
+ */
 int pubsubSubscribeChannel(client *c, robj *channel) {
     dictEntry *de;
     list *clients = NULL;
@@ -84,7 +89,11 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
 }
 
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
- * 0 if the client was not subscribed to the specified channel. */
+ * 0 if the client was not subscribed to the specified channel.
+ *
+ * 退订指定频道
+ * 在订阅字典中删除订阅了这个频道的某个客户端，如果频道不再有客户端订阅，则删除频道在订阅字典中的信息
+ */
 int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     dictEntry *de;
     list *clients;
@@ -123,7 +132,13 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     return retval;
 }
 
-/* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
+/* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern.
+ *
+ * 给某个客户端订阅某个模式
+ * 1. 创建一个pubsubPattern结构体
+ * 2. 给结构体设置对应的客户端和模式
+ * 3. 将结构体加入server.pubsub_patterns链表末尾
+ */
 int pubsubSubscribePattern(client *c, robj *pattern) {
     int retval = 0;
 
@@ -146,7 +161,12 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
 }
 
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
- * 0 if the client was not subscribed to the specified channel. */
+ * 0 if the client was not subscribed to the specified channel.
+ *
+ * 退订某个客户端的某个模式
+ * 1. 删除c->pubsub_patterns中对应的模式
+ * 2. 删除server.pubsub_patterns中对应的pubsubPattern结构体
+ */
 int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     listNode *ln;
     pubsubPattern pat;
@@ -174,7 +194,11 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 }
 
 /* Unsubscribe from all the channels. Return the number of channels the
- * client was subscribed to. */
+ * client was subscribed to.
+ *
+ * 退订客户端对应的所有频道
+ * 先取出这个客户端订阅了哪些频道，然后再单独退订这些频道
+ */
 int pubsubUnsubscribeAllChannels(client *c, int notify) {
     dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
     dictEntry *de;
@@ -198,7 +222,10 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
 }
 
 /* Unsubscribe from all the patterns. Return the number of patterns the
- * client was subscribed from. */
+ * client was subscribed from.
+ *
+ * 退订所有模式
+ */
 int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     listNode *ln;
     listIter li;
@@ -221,14 +248,22 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
-/* Publish a message */
+/* Publish a message
+ *
+ * 1. 将message发送给channel频道的所有订阅者
+ * 2. 如果有一个或多个模式与频道相匹配，则将消息message发送给这些模式的订阅者
+ */
 int pubsubPublishMessage(robj *channel, robj *message) {
     int receivers = 0;
     dictEntry *de;
     listNode *ln;
     listIter li;
 
-    /* Send to clients listening for that channel */
+    /* Send to clients listening for that channel
+     *
+     * 在服务器订阅字典中找到频道，然后把message发送给频道对应的所有客户端
+     * 如果没有找到，则不进行任何操作
+     */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
         list *list = dictGetVal(de);
@@ -246,7 +281,10 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             receivers++;
         }
     }
-    /* Send to clients listening to matching channels */
+    /* Send to clients listening to matching channels
+     *
+     * 遍历pubsub_patterns链表，将message发送给模式订阅者
+     */
     if (listLength(server.pubsub_patterns)) {
         listRewind(server.pubsub_patterns,&li);
         channel = getDecodedObject(channel);
@@ -274,46 +312,51 @@ int pubsubPublishMessage(robj *channel, robj *message) {
  * Pubsub commands implementation
  *----------------------------------------------------------------------------*/
 
+// 对应客户端subscribe命令，订阅频道
 void subscribeCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++)
-        pubsubSubscribeChannel(c,c->argv[j]);
+        pubsubSubscribeChannel(c,c->argv[j]);   // 订阅参数中的所有频道
     c->flags |= CLIENT_PUBSUB;
 }
 
+// 对应客户端unsubscribe命令，退订频道
 void unsubscribeCommand(client *c) {
     if (c->argc == 1) {
-        pubsubUnsubscribeAllChannels(c,1);
+        pubsubUnsubscribeAllChannels(c,1);  // 退订所有频道
     } else {
         int j;
 
         for (j = 1; j < c->argc; j++)
-            pubsubUnsubscribeChannel(c,c->argv[j],1);
+            pubsubUnsubscribeChannel(c,c->argv[j],1);   // 退订参数中的所有频道
     }
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
+// 对应客户端psubscribe命令，订阅模式
 void psubscribeCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++)
-        pubsubSubscribePattern(c,c->argv[j]);
+        pubsubSubscribePattern(c,c->argv[j]);   // 订阅参数中的所有模式
     c->flags |= CLIENT_PUBSUB;
 }
 
+// 对应客户端punsubscribe命令，退订模式
 void punsubscribeCommand(client *c) {
     if (c->argc == 1) {
-        pubsubUnsubscribeAllPatterns(c,1);
+        pubsubUnsubscribeAllPatterns(c,1);  // 退订所有模式
     } else {
         int j;
 
         for (j = 1; j < c->argc; j++)
-            pubsubUnsubscribePattern(c,c->argv[j],1);
+            pubsubUnsubscribePattern(c,c->argv[j],1);   // 退订参数中的所有模式
     }
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
+// 对应客户端publish <channel> <message>命令
 void publishCommand(client *c) {
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
@@ -323,7 +366,13 @@ void publishCommand(client *c) {
     addReplyLongLong(c,receivers);
 }
 
-/* PUBSUB command for Pub/Sub introspection. */
+/* PUBSUB command for Pub/Sub introspection.
+ *
+ * 客户端PUBSUB命令对应的函数，查看频道和模式订阅的相关信息
+ * 1. PUBSUB CHANNELS [pattern]: 返回服务器当前被订阅的频道
+ * 2. PUBSUB NUMSUB [channel1 channel2 ...]: 返回指定频道的订阅者数量
+ * 3. PUBSUB NUMPAT: 返回服务器当前被订阅模式的数量，即pubsub_patterns链表长度
+ */
 void pubsubCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"channels") &&
         (c->argc == 2 || c->argc ==3))

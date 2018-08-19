@@ -59,11 +59,12 @@ static int checkStringLength(client *c, long long size) {
  * If abort_reply is NULL, "$-1" is used. */
 
 #define OBJ_SET_NO_FLAGS 0
-#define OBJ_SET_NX (1<<0)     /* Set if key not exists. */
-#define OBJ_SET_XX (1<<1)     /* Set if key exists. */
-#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
-#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
+#define OBJ_SET_NX (1<<0)     /* Set if key not exists. key不存在时才设置，否则不做任何操作 */
+#define OBJ_SET_XX (1<<1)     /* Set if key exists. 覆盖 */
+#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given，秒级超时时间设置 */
+#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given，毫秒级超时时间设置 */
 
+// 将kv保存在DB中，然后返回响应给客户端
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
 
@@ -86,11 +87,11 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
     setKey(c->db,key,val);  // SET命令
     server.dirty++;
-    if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
+    if (expire) setExpire(c,c->db,key,mstime()+milliseconds);   // 设置过期时间
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
-    addReply(c, ok_reply ? ok_reply : shared.ok);   // 返回ok
+    addReply(c, ok_reply ? ok_reply : shared.ok);   // 返回ok，同步slave的操作是异步的
 }
 
 /* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>]
@@ -103,6 +104,7 @@ void setCommand(client *c) {
     int unit = UNIT_SECONDS;
     int flags = OBJ_SET_NO_FLAGS;
 
+    // 解析参数
     for (j = 3; j < c->argc; j++) {
         char *a = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
@@ -111,12 +113,12 @@ void setCommand(client *c) {
             (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
             !(flags & OBJ_SET_XX))
         {
-            flags |= OBJ_SET_NX;
+            flags |= OBJ_SET_NX;    // key不存在才设置，相当于添加操作
         } else if ((a[0] == 'x' || a[0] == 'X') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
                    !(flags & OBJ_SET_NX))
         {
-            flags |= OBJ_SET_XX;
+            flags |= OBJ_SET_XX;    // key存在才设置，相当于覆盖操作
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
                    !(flags & OBJ_SET_PX) && next)
@@ -140,7 +142,7 @@ void setCommand(client *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]); // value本来是string类型，这了将它转换为适当的类型对象
-    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL); // 实际保存操作
 }
 
 void setnxCommand(client *c) {

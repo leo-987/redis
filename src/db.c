@@ -1053,12 +1053,18 @@ int removeExpire(redisDb *db, robj *key) {
 void setExpire(client *c, redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
-    /* Reuse the sds from the main dict in the expire dict */
+    /* Reuse the sds from the main dict in the expire dict
+     *
+     * key的过期时间专门存放在一个过期字典中
+     */
     kde = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
 
+    /* 如果本机为可写的slave，那么需要处理过过期时间
+     * 只读slave只能处理客户端的读命令，当某个key过期时由master传递DEL命令到slave进行删除
+     */
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
         rememberSlaveKeyWithExpire(db,key);
