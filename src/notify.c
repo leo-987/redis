@@ -91,7 +91,13 @@ sds keyspaceEventsFlagsToString(int flags) {
  *
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
- * 'dbid' is the database ID where the key lives.  */
+ * 'dbid' is the database ID where the key lives.
+ *
+ * 向订阅了key或者event的客户端分别发送键空间通知和键事件通知
+ * 'event'是一个事件名，即命令类型
+ * 'key'是发生事件的键名
+ * 'dbid'是发生事件的DB序号
+ */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     sds chan;
     robj *chanobj, *eventobj;
@@ -104,12 +110,23 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
      * they are interested in. */
      moduleNotifyKeyspaceEvent(type, event, key, dbid);
     
-    /* If notifications for this class of events are off, return ASAP. */
+    /* If notifications for this class of events are off, return ASAP.
+     *
+     * 如果设置为不发送type类型的通知，则直接返回
+     */
     if (!(server.notify_keyspace_events & type)) return;
 
     eventobj = createStringObject(event,strlen(event));
 
-    /* __keyspace@<db>__:<key> <event> notifications. */
+    // 发送键空间通知，实际上是利用了订阅发布功能
+
+    /* __keyspace@<db>__:<key> <event> notifications.
+     *
+     * 通知客户端，某个键执行了什么命令，例如：
+     * "__keyspace@0__:message"
+     * "set"
+     * 表示键message执行了set命令
+     */
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
         chan = sdsnewlen("__keyspace@",11);
         len = ll2string(buf,sizeof(buf),dbid);
@@ -121,7 +138,13 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
         decrRefCount(chanobj);
     }
 
-    /* __keyevent@<db>__:<event> <key> notifications. */
+    /* __keyevent@<db>__:<event> <key> notifications.
+     *
+     * 通知客户端，某个命令被什么键执行了，例如：
+     * "__keyevent@0__:del"
+     * "message"
+     * 表示命令DEL被键message执行了
+     */
     if (server.notify_keyspace_events & NOTIFY_KEYEVENT) {
         chan = sdsnewlen("__keyevent@",11);
         if (len == -1) len = ll2string(buf,sizeof(buf),dbid);

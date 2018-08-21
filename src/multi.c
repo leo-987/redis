@@ -277,7 +277,7 @@ void unwatchAllKeys(client *c) {
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail.
  *
- * 将监视这个key的客户端设置为CLIENT_DIRTY_CAS，客户端随后的EXEC命令将失败，因为数据的一致性被破坏，无法安全执行事务
+ * 将WATCH了这个key的客户端设置为CLIENT_DIRTY_CAS，客户端随后的EXEC命令将失败，因为数据的一致性被破坏，无法安全执行事务
  */
 void touchWatchedKey(redisDb *db, robj *key) {
     list *clients;

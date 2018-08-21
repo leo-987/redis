@@ -129,8 +129,8 @@ struct redisCommand redisCommandTable[] = {
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
     {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0},
+    {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0},     // 设置key的同时设置过期时间，单位为秒
+    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0},   // 设置key的同时设置过期时间，单位为毫秒
     {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
@@ -219,24 +219,24 @@ struct redisCommand redisCommandTable[] = {
     {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0},
     {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0},
-    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0},
+    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0},     // 随机返回数据库中的某个key
     {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0},
     {"swapdb",swapdbCommand,3,"wF",0,NULL,0,0,0,0,0},
     {"move",moveCommand,3,"wF",0,NULL,1,1,1,0,0},
     {"rename",renameCommand,3,"w",0,NULL,1,2,1,0,0},
     {"renamenx",renamenxCommand,3,"wF",0,NULL,1,2,1,0,0},
-    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0},
+    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0},       // 以秒为单位设置过期时间
+    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0},   // 以秒为单位设置过期绝对时间
+    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0},     // 以毫秒为单位设置过期时间
+    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0}, // 以毫秒为单位设置过期绝对时间
     {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
     {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
-    {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},
+    {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},   // 返回一个DB的kv个数
     {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0},
     {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
-    {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"bgsave",bgsaveCommand,-1,"a",0,NULL,0,0,0,0,0},
+    {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0},       // 生成RDB文件
+    {"bgsave",bgsaveCommand,-1,"a",0,NULL,0,0,0,0,0},   // 生成RDB文件
     {"bgrewriteaof",bgrewriteaofCommand,1,"a",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"alt",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0},
@@ -247,15 +247,15 @@ struct redisCommand redisCommandTable[] = {
     {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
     {"replconf",replconfCommand,-1,"aslt",0,NULL,0,0,0,0,0},
-    {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},
+    {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},     // 清空数据库
     {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0},
     {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0},
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"monitor",monitorCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},     // 返回指定key距离过期还有多少时间，单位为秒
     {"touch",touchCommand,-2,"rF",0,NULL,1,1,1,0,0},
-    {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
+    {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},   // 返回指定key距离过期还有多少时间，单位为毫秒
+    {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0}, // 移除key的过期时间
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
     {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
     {"debug",debugCommand,-1,"as",0,NULL,0,0,0,0,0},
@@ -875,7 +875,7 @@ void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled && server.masterhost == NULL) {
-        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
+        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);    // 定期执行，淘汰过期key
     } else if (server.masterhost != NULL) {
         expireSlaveKeys();
     }
@@ -1861,16 +1861,20 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
-    server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    server.db = zmalloc(sizeof(redisDb)*server.dbnum);  // 给数据库数组分配空间
 
-    /* Open the TCP listening socket for the user commands. */
-    /* 开始监听端口，fd保存在ipfd */
+    /* Open the TCP listening socket for the user commands.
+     *
+     * 开始监听端口，fd保存在ipfd
+     */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
 
-    /* Open the listening Unix domain socket. */
-    /* unixsocket默认为NULL */
+    /* Open the listening Unix domain socket.
+     *
+     * unixsocket默认为NULL
+     */
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
@@ -1933,8 +1937,10 @@ void initServer(void) {
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
-     * expired keys and so forth. */
-    /* 创建定时任务 */
+     * expired keys and so forth.
+     *
+     * 创建定时任务
+     */
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -2305,7 +2311,7 @@ void call(client *c, int flags) {
         /* Check if the command operated changes in the data set. If so
          * set for replication / AOF propagation.
          *
-         * 如果命令修改了DB数据，那么需要同步到AOF和slave
+         * 如果命令修改了DB数据，那么需要设置同步到AOF和slave的标志
          */
         if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
 
@@ -3648,8 +3654,10 @@ int checkForSentinelMode(int argc, char **argv) {
     return 0;
 }
 
-/* Function called at startup to load RDB or AOF file in memory. */
-/* 优先使用AOF来还原数据，因为AOF的数据集更加完整 */
+/* Function called at startup to load RDB or AOF file in memory.
+ *
+ * 优先使用AOF来还原数据，因为AOF的数据集更加完整
+ */
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
@@ -3869,9 +3877,9 @@ int main(int argc, char **argv) {
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
     if (strstr(argv[0],"redis-check-rdb") != NULL)
-        redis_check_rdb_main(argc,argv,NULL);   /* 检测RDB文件，检测完毕直接退出进程 */
+        redis_check_rdb_main(argc,argv,NULL);   // 检测RDB文件，检测完毕直接退出进程
     else if (strstr(argv[0],"redis-check-aof") != NULL)
-        redis_check_aof_main(argc,argv);        /* 检测AOF文件，检测完毕直接退出进程 */
+        redis_check_aof_main(argc,argv);        // 检测AOF文件，检测完毕直接退出进程
 
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
@@ -3958,7 +3966,7 @@ int main(int argc, char **argv) {
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
-    initServer();
+    initServer();   // 初始化redis服务器
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
@@ -3971,7 +3979,7 @@ int main(int argc, char **argv) {
         linuxMemoryWarnings();
     #endif
         moduleLoadFromQueue();
-        loadDataFromDisk();
+        loadDataFromDisk(); // 从文件中加载数据
         if (server.cluster_enabled) {
             /* 检查有数据的slot是否属于本节点，如果不属于则需要接管该slot控制权 */
             if (verifyClusterConfigWithData() == C_ERR) {

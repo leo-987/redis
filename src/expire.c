@@ -92,17 +92,20 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  *
  * If type is ACTIVE_EXPIRE_CYCLE_SLOW, that normal expire cycle is
  * executed, where the time limit is a percentage of the REDIS_HZ period
- * as specified by the ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC define. */
-/* 删除设置了EXPIRE命令的已过期key */
+ * as specified by the ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC define.
+ *
+ * 淘汰设置了过期时间且已过期的key，这是定期删除策略
+ * 每次检查部分DB中的部分key
+ */
 void activeExpireCycle(int type) {
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
-    static unsigned int current_db = 0; /* Last DB tested. */
+    static unsigned int current_db = 0; /* Last DB tested. 当前检查的DB */
     static int timelimit_exit = 0;      /* Time limit hit in previous call? */
     static long long last_fast_cycle = 0; /* When last fast cycle ran. */
 
     int j, iteration = 0;
-    int dbs_per_call = CRON_DBS_PER_CALL;
+    int dbs_per_call = CRON_DBS_PER_CALL;   // 每次检查数据库的数量
     long long start = ustime(), timelimit, elapsed;
 
     /* When clients are paused the dataset should be static not just from the
@@ -401,7 +404,10 @@ void flushSlaveKeysWithExpireList(void) {
  * for *AT variants of the command, or the current time for relative expires).
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliseconds. */
+ * the argv[2] parameter. The basetime is always specified in milliseconds.
+ *
+ * 设置key的过期时间
+ */
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
@@ -409,10 +415,13 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
 
-    if (unit == UNIT_SECONDS) when *= 1000;
+    if (unit == UNIT_SECONDS) when *= 1000; // 秒转换成毫秒
     when += basetime;
 
-    /* No key, return zero. */
+    /* No key, return zero.
+     *
+     * key不在键空间中，无法设置过期时间
+     */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
@@ -425,6 +434,9 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
      * Instead we take the other branch of the IF statement setting an expire
      * (possibly in the past) and wait for an explicit DEL from the master. */
     if (when <= mstime() && !server.loading && !server.masterhost) {
+        // when对应的时间已过期，且并没有在载入数据，且本机为master
+        // 那么删除这个key，并将删除事件通知到slave
+
         robj *aux;
 
         int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
@@ -440,6 +452,9 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
+        // when对应的时间未过期，或者没有在载入数据，或者本机为slave，则设置key的过期时间
+        // slave在发现key过期时不会主动删除，而是等待master传播的DEL命令
+
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
@@ -492,17 +507,26 @@ void ttlGenericCommand(client *c, int output_ms) {
     }
 }
 
-/* TTL key */
+/* TTL key
+ *
+ * 已秒为单位返回key的剩余生存时间
+ */
 void ttlCommand(client *c) {
     ttlGenericCommand(c, 0);
 }
 
-/* PTTL key */
+/* PTTL key
+ *
+ * 已毫秒为单位返回key的剩余生存时间
+ */
 void pttlCommand(client *c) {
     ttlGenericCommand(c, 1);
 }
 
-/* PERSIST key */
+/* PERSIST key
+ *
+ * 移除key的过期时间，即删除过期字典中指定的key
+ */
 void persistCommand(client *c) {
     if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
@@ -512,7 +536,7 @@ void persistCommand(client *c) {
             addReply(c,shared.czero);
         }
     } else {
-        addReply(c,shared.czero);
+        addReply(c,shared.czero);   // key不存在则不进行任何操作
     }
 }
 

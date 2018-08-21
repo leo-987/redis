@@ -414,10 +414,13 @@ typedef long long mstime_t; /* millisecond time type. */
 #define RDB_CHILD_TYPE_SOCKET 2   /* RDB is written to slave socket. RDB直接发送到slave */
 
 /* Keyspace changes notification classes. Every class is associated with a
- * character for configuration purposes. */
-#define NOTIFY_KEYSPACE (1<<0)    /* K */
-#define NOTIFY_KEYEVENT (1<<1)    /* E */
-#define NOTIFY_GENERIC (1<<2)     /* g */
+ * character for configuration purposes.
+ *
+ * 键空间通知标志
+ */
+#define NOTIFY_KEYSPACE (1<<0)    /* K，通知订阅了某个键的客户端，某个键执行了什么命令 */
+#define NOTIFY_KEYEVENT (1<<1)    /* E，通知订阅了某个命令的客户端，某个命令被什么键执行了 */
+#define NOTIFY_GENERIC (1<<2)     /* g，通用类型通知 */
 #define NOTIFY_STRING (1<<3)      /* $ */
 #define NOTIFY_LIST (1<<4)        /* l */
 #define NOTIFY_SET (1<<5)         /* s */
@@ -609,10 +612,13 @@ struct evictionPoolEntry; /* Defined in evict.c */
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
- * database. The database number is the 'id' field in the structure. */
+ * database. The database number is the 'id' field in the structure.
+ *
+ * 代表一个DB
+ */
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
-    dict *expires;              /* Timeout of keys with a timeout set */
+    dict *dict;                 /* The keyspace for this DB，键空间保存了所有kv */
+    dict *expires;              /* Timeout of keys with a timeout set，过期字典，字典key是指向实际key的指针，字典vaue是指向的key的过期时间 */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS，字典key是被监视的键，字典value是监视键对应的客户端链表 */
@@ -882,7 +888,7 @@ struct redisServer {
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int hz;                     /* serverCron() calls frequency in hertz */
-    redisDb *db;                /* 数据库指针，默认16个 */
+    redisDb *db;                /* 数据库数组，保存数据库中所有的数据，默认16个 */
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;            /* 事件驱动对象 */
@@ -945,8 +951,8 @@ struct redisServer {
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
-    long long stat_keyspace_hits;   /* Number of successful lookups of keys */
-    long long stat_keyspace_misses; /* Number of failed lookups of keys */
+    long long stat_keyspace_hits;   /* Number of successful lookups of keys，key查找命中次数 */
+    long long stat_keyspace_misses; /* Number of failed lookups of keys，key查找未命中次数 */
     long long stat_active_defrag_hits;      /* number of allocations moved */
     long long stat_active_defrag_misses;    /* number of allocations scanned but not moved */
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
@@ -987,7 +993,7 @@ struct redisServer {
     int active_defrag_cycle_min;       /* minimal effort for defrag in CPU percentage */
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
-    int dbnum;                      /* Total number of configured DBs，默认16个 */
+    int dbnum;                      /* Total number of configured DBs，DB数组个数，默认16个 */
     int supervised;                 /* 1 if supervised, 0 otherwise.默认为0 */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon，默认为0 */
@@ -1029,7 +1035,7 @@ struct redisServer {
                                       to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
-    long long dirty;                /* Changes to DB from the last save，标志数据库是否被修改 */
+    long long dirty;                /* Changes to DB from the last save，标志数据库是否被修改，会触发服务器持久化和复制操作 */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     pid_t rdb_child_pid;            /* PID of RDB saving child，RDB操作线程ID */
     struct saveparam *saveparams;   /* Save points array for RDB */
@@ -1155,7 +1161,7 @@ struct redisServer {
     dict *pubsub_channels;  /* Map channels to list of subscribed clients，保存了所有频道订阅关系的字典 */
     list *pubsub_patterns;  /* A list of pubsub_patterns，保存了所有模式订阅关系的链表 */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
-                                   xor of NOTIFY_... flags. */
+                                   xor of NOTIFY_... flags. 决定了服务器允许发送通知的类型，是一个标志集合 */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     mstime_t cluster_node_timeout; /* Cluster node timeout. */

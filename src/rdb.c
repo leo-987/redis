@@ -919,7 +919,10 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
-        /* Iterate this DB writing every entry */
+        /* Iterate this DB writing every entry
+         *
+         * 过期的key不会存储到RDB文件中
+         */
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
@@ -1631,7 +1634,11 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
-         * snapshot taken by the master may not be reflected on the slave. */
+         * snapshot taken by the master may not be reflected on the slave.
+         *
+         * 如果本机是master，则需要过滤掉过期的key
+         * 如果本机是slave，则载入所有的key，后续会从master同步未过期的数据
+         */
         if (server.masterhost == NULL && !loading_aof && expiretime != -1 && expiretime < now) {
             decrRefCount(key);
             decrRefCount(val);
@@ -1674,7 +1681,10 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
  * output is initialized and finalized.
  *
  * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
- * loading code will fiil the information fields in the structure. */
+ * loading code will fiil the information fields in the structure.
+ *
+ * 从RDB还原数据
+ */
 int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     FILE *fp;
     rio rdb;
@@ -1995,6 +2005,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     return C_OK; /* Unreached. */
 }
 
+// 主进程保存RDB文件，会过滤掉过期的key
 void saveCommand(client *c) {
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");
@@ -2009,7 +2020,10 @@ void saveCommand(client *c) {
     }
 }
 
-/* BGSAVE [SCHEDULE] */
+/* BGSAVE [SCHEDULE]
+ *
+ * 子进程保存RDB文件，会过滤掉过期的key
+ */
 void bgsaveCommand(client *c) {
     int schedule = 0;
 

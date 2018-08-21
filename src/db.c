@@ -65,7 +65,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
             } else {
-                val->lru = LRU_CLOCK();
+                val->lru = LRU_CLOCK(); // 更新最后一次使用时间
             }
         }
         return val;
@@ -115,7 +115,10 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * to clients accessign expired values in a read-only fashion, that
          * will say the key as non exisitng.
          *
-         * Notably this covers GETs when slaves are used to scale reads. */
+         * Notably this covers GETs when slaves are used to scale reads.
+         *
+         * 如果本机为slave，那么即使key过期，仍然返回value给客户端
+         */
         if (server.current_client &&
             server.current_client != server.master &&
             server.current_client->cmd &&
@@ -479,17 +482,24 @@ void existsCommand(client *c) {
     addReplyLongLong(c,count);
 }
 
+/* 客户端SELECT命令对应的回调函数
+ * 该命令负责切换客户端的目标数据库
+ */
 void selectCommand(client *c) {
     long id;
 
+    // 检查DB下标有效性
     if (getLongFromObjectOrReply(c, c->argv[1], &id,
         "invalid DB index") != C_OK)
         return;
 
+    // 集群模式不允许指定DB
     if (server.cluster_enabled && id != 0) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
+
+    // 切换DB，DB索引不能超过数据库数组大小
     if (selectDb(c,id) == C_ERR) {
         addReplyError(c,"DB index is out of range");
     } else {
@@ -1092,7 +1102,10 @@ long long getExpire(redisDb *db, robj *key) {
  * This way the key expiry is centralized in one place, and since both
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
- * keys. */
+ * keys.
+ *
+ * 将DEL命令传播到AOF和slave
+ */
 void propagateExpire(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
@@ -1127,7 +1140,10 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
  * propagation of a DEL/UNLINK command in AOF / replication stream.
  *
  * The return value of the function is 0 if the key is still valid,
- * otherwise the function returns 1 if the key is expired. */
+ * otherwise the function returns 1 if the key is expired.
+ *
+ * 检查key是否过期，过期则删除，这是惰性删除策略，所有读写命令都会在执行之前调用这个函数进行检查
+ */
 int expireIfNeeded(redisDb *db, robj *key) {
     mstime_t when = getExpire(db,key);
     mstime_t now;
@@ -1150,7 +1166,11 @@ int expireIfNeeded(redisDb *db, robj *key) {
      *
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
-     * we think the key is expired at this time. */
+     * we think the key is expired at this time.
+     *
+     * 当本机为slave时，不会主动删除过期的key，而是由master发送DEL命令来删除
+     * 返回0表示key未过期，返回1表示key已过期
+     */
     if (server.masterhost != NULL) return now > when;
 
     /* Return when this key has not expired */
@@ -1158,7 +1178,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     /* Delete the key */
     server.stat_expiredkeys++;
-    propagateExpire(db,key,server.lazyfree_lazy_expire);
+    propagateExpire(db,key,server.lazyfree_lazy_expire);    // 同步到AOF和slave
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
     return server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
