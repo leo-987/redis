@@ -67,10 +67,10 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
-/* 1. 创建新客户端对象
- * 2. 初始化对象成员
+/* 1. 创建client对象，并初始化对象成员
+ * 2. 将连接套接字加入到epoll事件监听
  * 3. 加入客户端链表
- * */
+ */
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -628,7 +628,7 @@ int clientHasPendingReplies(client *c) {
 
 #define MAX_ACCEPTS_PER_CALL 1000
 
-/* 处理新连接，构建客户端对象 */
+// 处理新连接，构建客户端对象
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
     if ((c = createClient(fd)) == NULL) {   // 创建客户端对象
@@ -705,7 +705,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     c->flags |= flags;
 }
 
-/* 新连接事件回调函数 */
+// 新连接事件回调函数
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
@@ -1009,7 +1009,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
     }
     if (!clientHasPendingReplies(c)) {
         c->sentlen = 0;
-        if (handler_installed) aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        if (handler_installed) aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);  // 发送完毕，解除事件监听
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
@@ -1020,7 +1020,10 @@ int writeToClient(int fd, client *c, int handler_installed) {
     return C_OK;
 }
 
-/* Write event handler. Just send data to the client. */
+/* Write event handler. Just send data to the client.
+ *
+ * 套接字可写事件回调函数
+ */
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);

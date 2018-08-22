@@ -47,14 +47,14 @@
                            things to disk before sending replies, and want
                            to do that in a group fashion. */
 
-#define AE_FILE_EVENTS 1
-#define AE_TIME_EVENTS 2
+#define AE_FILE_EVENTS 1    // redis文件事件
+#define AE_TIME_EVENTS 2    // redis时间事件
 #define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
 #define AE_DONT_WAIT 4
 #define AE_CALL_AFTER_SLEEP 8
 
-#define AE_NOMORE -1
-#define AE_DELETED_EVENT_ID -1
+#define AE_NOMORE -1            // 定时时间
+#define AE_DELETED_EVENT_ID -1  // 时间事件ID为这个值时，表示这个事件应该被删除
 
 /* Macros */
 #define AE_NOTUSED(V) ((void) V)
@@ -75,7 +75,9 @@ typedef struct aeFileEvent {
     void *clientData;
 } aeFileEvent;
 
-/* Time event structure */
+/* Time event structure
+ * 时间事件结构体
+ */
 typedef struct aeTimeEvent {
     long long id; /* time event identifier. */
     long when_sec; /* seconds */
@@ -97,7 +99,7 @@ typedef struct aeFiredEvent {
 typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
     int setsize; /* max number of file descriptors tracked */
-    long long timeEventNextId;
+    long long timeEventNextId;  /* 时间事件ID发生器 */
     time_t lastTime;     /* Used to detect system clock skew */
     aeFileEvent *events; /* Registered events，注册事件数组 */
     aeFiredEvent *fired; /* Fired events，就绪事件数组 */

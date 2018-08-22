@@ -134,7 +134,7 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
-/* 事件注册唯一入口 */
+// 事件注册唯一入口
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -155,6 +155,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     return AE_OK;
 }
 
+// 取消事件的监听
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     if (fd >= eventLoop->setsize) return;
@@ -177,6 +178,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     }
 }
 
+// 返回套接字正在被监听的事件类型
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     if (fd >= eventLoop->setsize) return 0;
     aeFileEvent *fe = &eventLoop->events[fd];
@@ -207,6 +209,8 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
+// 创建一个时间事件，将新事件插入到事件链表的头部
+// redis唯一使用到时间事件的地方是周期执行serverCron
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
@@ -253,7 +257,8 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  *
- * 遍历整个链表，查找最近时间事件，时间复杂度O(n)
+ * 查找最近时间事件
+ * 由于时间事件链表没有按时间排序，因此需要遍历整个链表，时间复杂度O(n)
  */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
@@ -270,7 +275,10 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
     return nearest;
 }
 
-/* Process time events */
+/* Process time events
+ *
+ * 遍历所有已达到的时间事件，并调用这些事件的处理器
+ */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
@@ -329,15 +337,16 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
+            // 时间事件已到达，执行响应的处理器程序
             int retval;
 
             id = te->id;
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
             if (retval != AE_NOMORE) {
-                aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
+                aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);  // 周期性事件，更新触发时间
             } else {
-                te->id = AE_DELETED_EVENT_ID;
+                te->id = AE_DELETED_EVENT_ID;   // 定时时间，删除该事件
             }
         }
         te = te->next;
@@ -358,7 +367,12 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  * the events that's possible to process without to wait are processed.
  *
- * The function returns the number of events processed. */
+ * The function returns the number of events processed.
+ *
+ * 等待文件事件和时间事件触发并进行相应的处理
+ * 在进入epoll_wait之前需要判断是否有到期的时间事件，如果有则epoll_wait立即返回
+ * 如果没有，则epoll_wait休眠时间由最近的时间事件来决定，这样就很好的把文件事件和时间事件结合起来了
+ */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -435,8 +449,10 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
-        /* 处理所有就绪事件 */
+        // 处理所有就绪事件
+        // 遍历每一个就绪事件，根据类型执行对应的事件回调函数
         for (j = 0; j < numevents; j++) {
+            // 先找出就绪的事件
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
@@ -495,7 +511,10 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             processed++;
         }
     }
-    /* Check time events */
+    /* Check time events
+     *
+     * 处理时间事件
+     */
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 
@@ -524,7 +543,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     }
 }
 
-/* 事件循环主函数 */
+// 事件循环主函数
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {
@@ -534,6 +553,7 @@ void aeMain(aeEventLoop *eventLoop) {
     }
 }
 
+// 返回底层事件驱动程序名称，如"epoll"
 char *aeGetApiName(void) {
     return aeApiName();
 }

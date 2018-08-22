@@ -550,8 +550,8 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
 }
 
 /* 调用accept接收新连接，两个地方被调用：
- *   1. 客户端连接请求
- *   2. 集群内其它redis请求
+ * 1. 客户端连接请求
+ * 2. 集群内其它redis请求
  */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;

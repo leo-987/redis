@@ -952,6 +952,12 @@ void updateCachedTime(void) {
  * a macro is used: run_with_period(milliseconds) { .... }
  *
  * 定时指定任务
+ * 1. 更新服务器各类统计信息
+ * 2. 清理过期key
+ * 3. 关闭无效客户端连接
+ * 4. AOF和RDB持久化操作
+ * 5. 如果本机为master，则对slave进行同步
+ * 6. 如果处于集群模式，则进行同步和连接测试
  */
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
