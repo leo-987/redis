@@ -169,7 +169,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     listAddNodeTail(server.loadmodule_queue,loadmod);
 }
 
-/* 解析并保存配置项和命令行参数 */
+// 解析并保存配置项和命令行参数
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -731,7 +731,10 @@ void loadServerConfigFromString(char *config) {
             queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
-             * mode ASAP. */
+             * mode ASAP.
+             *
+             * sentinel开头的配置项为sentinel相关配置，在这里统一解析
+             */
             if (argc != 1) {
                 if (!server.sentinel_mode) {
                     err = "sentinel directive while not in sentinel mode";
@@ -771,7 +774,10 @@ loaderr:
  *
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
- * just load a string. */
+ * just load a string.
+ *
+ * 读取、解析、保存配置项
+ */
 void loadServerConfig(char *filename, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
@@ -798,7 +804,7 @@ void loadServerConfig(char *filename, char *options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);    // 配置信息来源：配置文件项，命令行参数
     }
-    loadServerConfigFromString(config);
+    loadServerConfigFromString(config);     // 解析保存配置项
     sdsfree(config);
 }
 

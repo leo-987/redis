@@ -911,7 +911,7 @@ struct redisServer {
                                    client blocked on a module command needs
                                    to be processed. 貌似这玩意没啥用，先忽略 */
     /* Networking */
-    int port;                   /* TCP listening port，默认6379 */
+    int port;                   /* TCP listening port，redis使用6379，sentinel使用26379 */
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */

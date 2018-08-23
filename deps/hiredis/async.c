@@ -168,6 +168,7 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     return ac;
 }
 
+// 连接指定的ip:port，并返回一个redisAsyncContext对象
 redisAsyncContext *redisAsyncConnectBind(const char *ip, int port,
                                          const char *source_addr) {
     redisContext *c = redisConnectBindNonBlock(ip,port,source_addr);
@@ -202,6 +203,7 @@ redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     return ac;
 }
 
+// 连接刚建立时，将可写事件加入监听
 int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn) {
     if (ac->onConnect == NULL) {
         ac->onConnect = fn;
@@ -552,12 +554,12 @@ void redisAsyncHandleWrite(redisAsyncContext *ac) {
     } else {
         /* Continue writing when not done, stop writing otherwise */
         if (!done)
-            _EL_ADD_WRITE(ac);
+            _EL_ADD_WRITE(ac);  // 未发送完成，继续监听写事件
         else
-            _EL_DEL_WRITE(ac);
+            _EL_DEL_WRITE(ac);  // 发送完成或输出buffer中没有数据，取消监听写事件
 
         /* Always schedule reads after writes */
-        _EL_ADD_READ(ac);
+        _EL_ADD_READ(ac);   // 写完之后立即注册读事件监听
     }
 }
 
@@ -639,10 +641,10 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
             __redisPushCallback(&ac->replies,&cb);
     }
 
-    __redisAppendCommand(c,cmd,len);
+    __redisAppendCommand(c,cmd,len);    // 将命令放入连接的输出buffer
 
     /* Always schedule a write when the write buffer is non-empty */
-    _EL_ADD_WRITE(ac);
+    _EL_ADD_WRITE(ac);  // 将可写事件加入epoll监听，便于将刚才放入输出buffer的数据发送出去
 
     return REDIS_OK;
 }
@@ -662,6 +664,7 @@ int redisvAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdat
     return status;
 }
 
+// sentinel通过这个函数向被监控的实例发送各种命令
 int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, ...) {
     va_list ap;
     int status;

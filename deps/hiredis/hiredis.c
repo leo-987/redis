@@ -709,9 +709,9 @@ redisContext *redisConnectNonBlock(const char *ip, int port) {
 
 redisContext *redisConnectBindNonBlock(const char *ip, int port,
                                        const char *source_addr) {
-    redisContext *c = redisContextInit();
+    redisContext *c = redisContextInit();   // 初始化redisContext结构体
     c->flags &= ~REDIS_BLOCK;
-    redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
+    redisContextConnectBindTcp(c,ip,port,NULL,source_addr); // 调用connect进行连接
     return c;
 }
 

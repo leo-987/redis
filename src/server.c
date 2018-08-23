@@ -1155,7 +1155,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         if (server.cluster_enabled) clusterCron();
     }
 
-    /* Run the Sentinel timer if we are in sentinel mode. */
+    /* Run the Sentinel timer if we are in sentinel mode.
+     *
+     * sentinel心跳检测
+     */
     run_with_period(100) {
         if (server.sentinel_mode) sentinelTimer();
     }
@@ -3875,8 +3878,8 @@ int main(int argc, char **argv) {
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
     if (server.sentinel_mode) {
-        initSentinelConfig();
-        initSentinel();
+        initSentinelConfig();   // 设置sentinel监听端口
+        initSentinel();         // 设置sentinelState结构体
     }
 
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
