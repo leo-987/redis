@@ -93,7 +93,7 @@ typedef struct redisAsyncContext {
     redisConnectCallback *onConnect;
 
     /* Regular command callbacks */
-    redisCallbackList replies;
+    redisCallbackList replies;  // 响应回调函数链表
 
     /* Subscription callbacks */
     struct {

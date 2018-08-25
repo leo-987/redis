@@ -225,7 +225,10 @@ int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallba
     return REDIS_ERR;
 }
 
-/* Helper functions to push/shift callbacks */
+/* Helper functions to push/shift callbacks
+ *
+ * 把source指向的回调函数挂到list中
+ */
 static int __redisPushCallback(redisCallbackList *list, redisCallback *source) {
     redisCallback *cb;
 
@@ -248,6 +251,7 @@ static int __redisPushCallback(redisCallbackList *list, redisCallback *source) {
     return REDIS_OK;
 }
 
+// 从回调函数链表中取出第一个回调函数
 static int __redisShiftCallback(redisCallbackList *list, redisCallback *target) {
     redisCallback *cb = list->head;
     if (cb != NULL) {
@@ -264,6 +268,7 @@ static int __redisShiftCallback(redisCallbackList *list, redisCallback *target) 
     return REDIS_ERR;
 }
 
+// 调用回调函数
 static void __redisRunCallback(redisAsyncContext *ac, redisCallback *cb, redisReply *reply) {
     redisContext *c = &(ac->c);
     if (cb->fn != NULL) {
@@ -410,6 +415,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
     return REDIS_OK;
 }
 
+// 读取响应数据，然后调用预先设置好的回调函数进行处理
 void redisProcessCallbacks(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
     redisCallback cb = {NULL, NULL, NULL};
@@ -665,6 +671,7 @@ int redisvAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdat
 }
 
 // sentinel通过这个函数向被监控的实例发送各种命令
+// 当收到响应时会调用参数fn指向的函数，以此来实现异步操作
 int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, ...) {
     va_list ap;
     int status;
