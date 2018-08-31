@@ -2067,7 +2067,7 @@ write_error: /* Handle sendSynchronousCommand(SYNC_CMD_WRITE) errors. */
     goto error;
 }
 
-/* 连接master */
+// 连接master
 int connectWithMaster(void) {
     int fd;
 
@@ -2227,8 +2227,10 @@ void replicationHandleMasterDisconnection(void) {
      * the slaves only if we'll have to do a full resync with our master. */
 }
 
-/* SLAVEOF host port
- * 将指定的服务器和端口作为master，或将自己提升为master
+/*
+ * "SLAVEOF <host> <port>": 将指定的服务器和端口作为master
+ * "SLAVEOF no one": 将自己提升为master
+ *
  * 如果有必要，会终止和现有master的同步操作，并断开连接
  */
 void slaveofCommand(client *c) {
@@ -2245,7 +2247,7 @@ void slaveofCommand(client *c) {
     /* The special host/port combination "NO" "ONE" turns the instance
      * into a master. Otherwise the new master address is set.
      *
-     * 'slaveof no one'命令将本实例提升为master
+     * "slaveof no one"命令将本实例提升为master
      */
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
         !strcasecmp(c->argv[2]->ptr,"one")) {
@@ -2273,7 +2275,10 @@ void slaveofCommand(client *c) {
             return;
         }
         /* There was no previous master or the user specified a different one,
-         * we can continue. */
+         * we can continue.
+         *
+         * 更新自己的master实例
+         */
         replicationSetMaster(c->argv[1]->ptr, port);
         sds client = catClientInfoString(sdsempty(),c);
         serverLog(LL_NOTICE,"SLAVE OF %s:%d enabled (user request from '%s')",

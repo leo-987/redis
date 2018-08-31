@@ -1157,7 +1157,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Run the Sentinel timer if we are in sentinel mode.
      *
-     * sentinel心跳检测
+     * sentinel定时检查
      */
     run_with_period(100) {
         if (server.sentinel_mode) sentinelTimer();

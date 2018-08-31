@@ -60,7 +60,7 @@ typedef struct sentinelAddr {
                                    its master is down. */
 #define SRI_FAILOVER_IN_PROGRESS (1<<6) /* Failover is in progress for
                                            this master. 正在进行故障转移 */
-#define SRI_PROMOTED (1<<7)            /* Slave selected for promotion. */
+#define SRI_PROMOTED (1<<7)            /* Slave selected for promotion. 标记这个slave被选为新master */
 #define SRI_RECONF_SENT (1<<8)     /* SLAVEOF <newmaster> sent. */
 #define SRI_RECONF_INPROG (1<<9)   /* Slave synchronization in progress. */
 #define SRI_RECONF_DONE (1<<10)     /* Slave synchronized with new master. */
@@ -89,9 +89,9 @@ typedef struct sentinelAddr {
 #define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. */
 #define SENTINEL_FAILOVER_STATE_WAIT_START 1  /* Wait for failover_start_time*/
 #define SENTINEL_FAILOVER_STATE_SELECT_SLAVE 2 /* Select slave to promote */
-#define SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE 3 /* Slave -> Master */
-#define SENTINEL_FAILOVER_STATE_WAIT_PROMOTION 4 /* Wait slave to change role */
-#define SENTINEL_FAILOVER_STATE_RECONF_SLAVES 5 /* SLAVEOF newmaster */
+#define SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE 3 /* Slave -> Master，即将发送"slaveof no one"到提升slave */
+#define SENTINEL_FAILOVER_STATE_WAIT_PROMOTION 4 /* Wait slave to change role，等待提升slave的"INFO"响应中role字段由slave变为master */
+#define SENTINEL_FAILOVER_STATE_RECONF_SLAVES 5 /* SLAVEOF newmaster，更新剩余slave指向新master */
 #define SENTINEL_FAILOVER_STATE_UPDATE_CONFIG 6 /* Monitor promoted slave. */
 
 #define SENTINEL_MASTER_LINK_STATUS_UP 0
@@ -217,7 +217,7 @@ typedef struct sentinelRedisInstance {
     mstime_t failover_timeout;      /* Max time to refresh failover state. */
     mstime_t failover_delay_logged; /* For what failover_start_time value we
                                        logged the failover delay. */
-    struct sentinelRedisInstance *promoted_slave; /* Promoted slave instance. */
+    struct sentinelRedisInstance *promoted_slave; /* Promoted slave instance. 被提升为新master的slave实例 */
     /* Scripts executed to notify admin or reconfigure clients: when they
      * are set to NULL no script is executed. */
     char *notification_script;
@@ -1484,7 +1484,12 @@ int sentinelResetMastersByPattern(char *pattern, int flags) {
  * This is used to handle the +switch-master event.
  *
  * The function returns C_ERR if the address can't be resolved for some
- * reason. Otherwise C_OK is returned.  */
+ * reason. Otherwise C_OK is returned.
+ *
+ * 1. 将ip:port对应的实例加入master实例字典
+ * 2. 将老master的slave挂到新master下
+ * 3. 将老master也成为新master的slave
+ */
 int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip, int port) {
     sentinelAddr *oldaddr, *newaddr;
     sentinelAddr **slaves = NULL;
@@ -2225,7 +2230,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Handle slave -> master role switch.
      *
-     * 新master的角色发生了变化
+     * 新master更新了自己的角色
      */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
         /* If this is a promoted slave we can change state to the
@@ -2233,7 +2238,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if ((ri->flags & SRI_PROMOTED) &&
             (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
             (ri->master->failover_state ==
-                SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
+                SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))    // "INFO"命令回复解析
         {
             /* Now that we are sure the slave was reconfigured as a master
              * set the master configuration epoch to the epoch we won the
@@ -2241,7 +2246,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * Sentinels to update their config (assuming there is not
              * a newer one already available). */
             ri->master->config_epoch = ri->master->failover_epoch;
-            ri->master->failover_state = SENTINEL_FAILOVER_STATE_RECONF_SLAVES;
+            ri->master->failover_state = SENTINEL_FAILOVER_STATE_RECONF_SLAVES; // 收到"INFO"命令的响应，更新失效转移状态
             ri->master->failover_state_change_time = mstime();
             sentinelFlushConfig();
             sentinelEvent(LL_WARNING,"+promoted-slave",ri,"%@");
@@ -2296,7 +2301,11 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     }
 
     /* Detect if the slave that is in the process of being reconfigured
-     * changed state. */
+     * changed state.
+     *
+     * 失效转移流程中，需要发送"SLAVEOF <ip> <port>"告知slave新master的ip和port
+     * 然后根据"INFO"的响应确定这些slave是否已更新自己的master
+     */
     if ((ri->flags & SRI_SLAVE) && role == SRI_SLAVE &&
         (ri->flags & (SRI_RECONF_SENT|SRI_RECONF_INPROG)))
     {
@@ -2316,6 +2325,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if ((ri->flags & SRI_RECONF_INPROG) &&
             ri->slave_master_link_status == SENTINEL_MASTER_LINK_STATUS_UP)
         {
+            // slave和新master连接正常，表示slave已修改了自己的master
             ri->flags &= ~SRI_RECONF_INPROG;
             ri->flags |= SRI_RECONF_DONE;
             sentinelEvent(LL_NOTICE,"+slave-reconf-done",ri,"%@");
@@ -3758,9 +3768,10 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
 
         /* Ask
          *
-         * 1. 当master->failover_state == SENTINEL_FAILOVER_STATE_NONE时，发送
+         * 1. 当master->failover_state == SENTINEL_FAILOVER_STATE_NONE时，发送询问请求
          *    "SENTINEL is-master-down-by-addr <master_ip> <master_port> <sentinel_epoch> *"
-         * 2. 当master->failover_state != SENTINEL_FAILOVER_STATE_NONE时，发送
+         *
+         * 2. 当master->failover_state != SENTINEL_FAILOVER_STATE_NONE时，发送投票请求
          *    "SENTINEL is-master-down-by-addr <master_ip> <master_port> <sentinel_epoch> <sentinel_runid>"
          */
         ll2string(port,sizeof(port),master->addr->port);
@@ -4117,6 +4128,7 @@ int compareSlavesForPromotion(const void *a, const void *b) {
     return strcasecmp(sa_runid, sb_runid);
 }
 
+// 新master选取逻辑
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
     sentinelRedisInstance **instance =
         zmalloc(sizeof(instance[0])*dictSize(master->slaves));
@@ -4195,8 +4207,12 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     sentinelEvent(LL_WARNING,"+failover-state-select-slave",ri,"%@");
 }
 
+/*
+ * 在ri下属的所有slave中选择一个slave，准备将其提升为新master
+ * 设置相应的变量和状态
+ */
 void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
-    sentinelRedisInstance *slave = sentinelSelectSlave(ri);
+    sentinelRedisInstance *slave = sentinelSelectSlave(ri); // 选取slave
 
     /* We don't handle the timeout in this state as the function aborts
      * the failover or go forward in the next state. */
@@ -4204,6 +4220,7 @@ void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
         sentinelEvent(LL_WARNING,"-failover-abort-no-good-slave",ri,"%@");
         sentinelAbortFailover(ri);
     } else {
+        // 设置变量，准备提升为新master
         sentinelEvent(LL_WARNING,"+selected-slave",slave,"%@");
         slave->flags |= SRI_PROMOTED;
         ri->promoted_slave = slave;
@@ -4251,6 +4268,8 @@ void sentinelFailoverWaitPromotion(sentinelRedisInstance *ri) {
     }
 }
 
+// 检查所有slave是否都已经修改了自己的master，超时的也认为修改成功
+// 如果确认都已经修改，则修改状态机，等到下一次sentinel定时检查时，将下线master也标记为新master的slave，并修改相关实例字典
 void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     int not_reconfigured = 0, timeout = 0;
     dictIterator *di;
@@ -4282,6 +4301,8 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     }
 
     if (not_reconfigured == 0) {
+        // 所有slave都指向了新master，修改状态机，后续将下线master也设置为新master的slave
+        // 并且更新相关实例字典
         sentinelEvent(LL_WARNING,"+failover-end",master,"%@");
         master->failover_state = SENTINEL_FAILOVER_STATE_UPDATE_CONFIG;
         master->failover_state_change_time = mstime();
@@ -4315,7 +4336,12 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
 }
 
 /* Send SLAVE OF <new master address> to all the remaining slaves that
- * still don't appear to have the configuration updated. */
+ * still don't appear to have the configuration updated.
+ *
+ * 向master下除了提升slave的所有slave发送"SLAVEOF <new_master_ip> <new_master_port>"命令
+ * 然后通过定时发送"INFO"确认slave是否已修改自己的master
+ * 这个函数的末尾会调用 sentinelFailoverDetectEnd 检查是否所有slave都已修改成功，如果是的话则标记下线master为新master的slave
+ */
 void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
     dictIterator *di;
     dictEntry *de;
@@ -4377,8 +4403,13 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
 
 /* This function is called when the slave is in
  * SENTINEL_FAILOVER_STATE_UPDATE_CONFIG state. In this state we need
- * to remove it from the master table and add the promoted slave instead. */
+ * to remove it from the master table and add the promoted slave instead.
+ *
+ * 1. 将下线master从master实例字典中删除
+ * 2. 将新master加入master实例自己
+ */
 void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
+    // master为已客观下线的实例，ref为新提升为master的实例
     sentinelRedisInstance *ref = master->promoted_slave ?
                                  master->promoted_slave : master;
 
@@ -4389,27 +4420,34 @@ void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     sentinelResetMasterAndChangeAddress(master,ref->addr->ip,ref->addr->port);
 }
 
-// 失效转移操作状态机，ri为判定为客观下线的master实例
+/*
+ * 失效转移操作状态机，ri是被判定为客观下线的master实例，状态机整体流程为：
+ *  1. 检查自己是否为leader sentinel，不是则跳过下面流程
+ *  2. 在下线master的slave中选择一台作为提升slave，准备将其提升为新master
+ *  3. 向提升slave发送"SLAVEOF no one"命令
+ *  4. 本机sentinel每1s向提升slave发送"INFO"命令，根据响应中的"role"字段确认是否已成为新master
+ *  5. 新master确认后，向剩余slave发送"SLAVEOF <new_master_ip> <new_master_port>"命令使其跟随新master，然后进行部分或完全数据同步
+ */
 void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
     serverAssert(ri->flags & SRI_MASTER);
 
     if (!(ri->flags & SRI_FAILOVER_IN_PROGRESS)) return;
 
     switch(ri->failover_state) {
-        case SENTINEL_FAILOVER_STATE_WAIT_START:
-            sentinelFailoverWaitStart(ri);  // 检查自己是否为leader
+        case SENTINEL_FAILOVER_STATE_WAIT_START:    // 检查自己是否为leader
+            sentinelFailoverWaitStart(ri);
             break;
-        case SENTINEL_FAILOVER_STATE_SELECT_SLAVE:
-            sentinelFailoverSelectSlave(ri);    // 在已下线的master属下的slave中挑选一台作为新master
+        case SENTINEL_FAILOVER_STATE_SELECT_SLAVE:  // 在已下线的master属下的slave中挑选一台作为新master
+            sentinelFailoverSelectSlave(ri);
             break;
-        case SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE:
-            sentinelFailoverSendSlaveOfNoOne(ri);   // 向新master发送"SLAVEOF no one"命令
+        case SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE:    // 向选中的slave发送"SLAVEOF no one"命令，使其转换为master
+            sentinelFailoverSendSlaveOfNoOne(ri);
             break;
         case SENTINEL_FAILOVER_STATE_WAIT_PROMOTION:
             sentinelFailoverWaitPromotion(ri);
             break;
-        case SENTINEL_FAILOVER_STATE_RECONF_SLAVES:
-            sentinelFailoverReconfNextSlave(ri);
+        case SENTINEL_FAILOVER_STATE_RECONF_SLAVES: // 确认新的master后，状态机到达这里
+            sentinelFailoverReconfNextSlave(ri);    // 向剩余所有slave发送"SLAVEOF <master_ip> <master_port>"命令
             break;
     }
 }
@@ -4473,8 +4511,8 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
      * 检查客观下线状态，并进行失效转移
      */
     if (ri->flags & SRI_MASTER) {
-        sentinelCheckObjectivelyDown(ri);   // 检查是否为客观下线
-        if (sentinelStartFailoverIfNeeded(ri))
+        sentinelCheckObjectivelyDown(ri);       // 检查master是否为客观下线
+        if (sentinelStartFailoverIfNeeded(ri))  // 判断是否执行失效转移
             sentinelAskMasterStateToOtherSentinels(ri,SENTINEL_ASK_FORCED); // 发送投票请求，推荐自己为leader
         sentinelFailoverStateMachine(ri);
         sentinelAskMasterStateToOtherSentinels(ri,SENTINEL_NO_FLAGS);       // 询问其他sentinel此master的下线情况
@@ -4502,6 +4540,7 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
             sentinelHandleDictOfRedisInstances(ri->slaves);     // 递归检测slave
             sentinelHandleDictOfRedisInstances(ri->sentinels);  // 递归检测sentinel
             if (ri->failover_state == SENTINEL_FAILOVER_STATE_UPDATE_CONFIG) {
+                // master处于下线状态，走入这个分支
                 switch_to_promoted = ri;
             }
         }
